@@ -32,3 +32,4 @@ pub(crate) const PATH_DELEGATE_SUBMISSION_RIGHTS: &str = "/builder/delegate";
 pub(crate) const PATH_REVOKE_SUBMISSION_RIGHTS: &str = "/builder/revoke";
 pub(crate) const PATH_BUILDER_CONSTRAINTS: &str = "/relay/builder/constraints";
 pub(crate) const PATH_BUILDER_CONSTRAINTS_STREAM: &str = "/relay/builder/constraints_stream";
+pub(crate) const PATH_BUILDER_BLOCKS_WITH_PROOFS: &str = "/relay/builder/blocks_with_proofs";

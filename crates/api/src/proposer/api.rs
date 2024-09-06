@@ -11,10 +11,16 @@ use axum::{
     Extension,
 };
 use ethereum_consensus::{
-    builder::SignedValidatorRegistration, clock::get_current_unix_time_in_nanos, deneb::{Context, Root}, phase0::mainnet::SLOTS_PER_EPOCH, primitives::BlsPublicKey, ssz::prelude::*, types::mainnet::{
+    builder::SignedValidatorRegistration,
+    clock::get_current_unix_time_in_nanos,
+    deneb::{Context, Root},
+    phase0::mainnet::SLOTS_PER_EPOCH,
+    primitives::BlsPublicKey,
+    ssz::prelude::*,
+    types::mainnet::{
         ExecutionPayloadHeader, ExecutionPayloadHeaderRef, SignedBeaconBlock,
         SignedBlindedBeaconBlock,
-    }
+    },
 };
 
 use tokio::{
@@ -32,16 +38,30 @@ use helix_common::{
     api::{
         builder_api::BuilderGetValidatorsResponseEntry,
         proposer_api::{GetPayloadResponse, ValidatorRegistrationInfo},
-    }, chain_info::{ChainInfo, Network}, signed_proposal::VersionedSignedProposal, try_execution_header_from_payload, validator_preferences, versioned_payload::PayloadAndBlobs, BidRequest, Filtering, GetHeaderTrace, GetPayloadTrace, RegisterValidatorsTrace, ValidatorPreferences
+    },
+    chain_info::{ChainInfo, Network},
+    signed_proposal::VersionedSignedProposal,
+    try_execution_header_from_payload, validator_preferences,
+    versioned_payload::PayloadAndBlobs,
+    BidRequest, Filtering, GetHeaderTrace, GetPayloadTrace, RegisterValidatorsTrace,
+    ValidatorPreferences,
 };
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
 use helix_housekeeper::{ChainUpdate, SlotUpdate};
 use helix_utils::signing::{verify_signed_builder_message, verify_signed_consensus_message};
 
-use crate::{builder::api, gossiper::{traits::GossipClientTrait, types::{BroadcastGetPayloadParams, GossipedMessage}}, proposer::{
-    error::ProposerApiError, unblind_beacon_block, GetHeaderParams, PreferencesHeader, GET_HEADER_REQUEST_CUTOFF_MS
-}};
+use crate::{
+    builder::api,
+    gossiper::{
+        traits::GossipClientTrait,
+        types::{BroadcastGetPayloadParams, GossipedMessage},
+    },
+    proposer::{
+        error::ProposerApiError, unblind_beacon_block, GetHeaderParams, PreferencesHeader,
+        GET_HEADER_REQUEST_CUTOFF_MS,
+    },
+};
 
 const GET_PAYLOAD_REQUEST_CUTOFF_MS: i64 = 4000;
 pub(crate) const MAX_BLINDED_BLOCK_LENGTH: usize = 1024 * 1024;
@@ -159,9 +179,8 @@ where
                     warn!("Invalid api key provided");
                     return Err(ProposerApiError::InvalidApiKey);
                 }
-            
             },
-            None => None
+            None => None,
         };
 
         // Set using default preferences from config
@@ -171,18 +190,17 @@ where
             header_delay: proposer_api.validator_preferences.header_delay,
         };
 
-
         let preferences_header = headers.get("x-preferences");
         let preferences = match preferences_header {
             Some(preferences_header) => {
-                let decoded_prefs: PreferencesHeader = serde_json::from_str(preferences_header.to_str()?)?;
+                let decoded_prefs: PreferencesHeader =
+                    serde_json::from_str(preferences_header.to_str()?)?;
                 Some(decoded_prefs)
-            },
-            None => None
+            }
+            None => None,
         };
 
         if let Some(preferences) = preferences {
-            
             // Overwrite preferences if they are provided
 
             if let Some(filtering) = preferences.filtering {
@@ -191,7 +209,7 @@ where
                 if let Some(censoring) = preferences.censoring {
                     validator_preferences.filtering = match censoring {
                         true => Filtering::Regional,
-                        false => Filtering::Global
+                        false => Filtering::Global,
                     };
                 }
             }
@@ -421,6 +439,10 @@ where
         }
     }
 
+    pub async fn get_header_with_proofs() {
+        unimplemented!()
+    }
+
     /// Retrieves the execution payload for a given blinded beacon block.
     ///
     /// This function accepts a `SignedBlindedBeaconBlock` as input and performs several steps:
@@ -454,16 +476,19 @@ where
             };
         let block_hash =
             signed_blinded_block.message().body().execution_payload_header().block_hash().clone();
-        
+
         let slot = signed_blinded_block.message().slot();
 
         // Broadcast get payload request
-        if let Err(e) = proposer_api.gossiper.broadcast_get_payload(BroadcastGetPayloadParams {
-            signed_blinded_beacon_block: signed_blinded_block.clone(),
-            request_id: request_id.clone(),
-        }).await {
+        if let Err(e) = proposer_api
+            .gossiper
+            .broadcast_get_payload(BroadcastGetPayloadParams {
+                signed_blinded_beacon_block: signed_blinded_block.clone(),
+                request_id: request_id.clone(),
+            })
+            .await
+        {
             error!(request_id = %request_id, error = %e, "failed to broadcast get payload");
-        
         };
 
         match proposer_api._get_payload(signed_blinded_block, &mut trace, &request_id).await {
@@ -655,22 +680,21 @@ where
         // Publish and validate payload with multi-beacon-client
         let fork = unblinded_payload.version();
         if is_trusted_proposer {
-            
             let self_clone = self.clone();
             let unblinded_payload_clone = unblinded_payload.clone();
             let request_id_clone = request_id.clone();
             let mut trace_clone = trace.clone();
             let payload_clone = payload.clone();
-            
+
             tokio::spawn(async move {
                 if let Err(err) = self_clone
-                .multi_beacon_client
-                .publish_block(
-                    unblinded_payload_clone.clone(),
-                    Some(BroadcastValidation::ConsensusAndEquivocation),
-                    fork,
-                )
-                .await
+                    .multi_beacon_client
+                    .publish_block(
+                        unblinded_payload_clone.clone(),
+                        Some(BroadcastValidation::ConsensusAndEquivocation),
+                        fork,
+                    )
+                    .await
                 {
                     error!(request_id = %request_id_clone, error = %err, "error publishing block");
                 };
@@ -684,29 +708,28 @@ where
                     &request_id_clone,
                 );
                 trace_clone.broadcaster_block_broadcast = get_nanos_timestamp().unwrap_or_default();
-        
+
                 // While we wait for the block to propagate, we also store the payload information
                 trace_clone.on_deliver_payload = get_nanos_timestamp().unwrap_or_default();
-                self_clone.save_delivered_payload_info(
-                    payload_clone,
-                    &signed_blinded_block,
-                    &proposer_public_key,
-                    &trace_clone,
-                    &request_id_clone,
-                )
-                .await;
+                self_clone
+                    .save_delivered_payload_info(
+                        payload_clone,
+                        &signed_blinded_block,
+                        &proposer_public_key,
+                        &trace_clone,
+                        &request_id_clone,
+                    )
+                    .await;
             });
-
         } else {
-
             if let Err(err) = self
-            .multi_beacon_client
-            .publish_block(
-                unblinded_payload.clone(),
-                Some(BroadcastValidation::ConsensusAndEquivocation),
-                fork,
-            )
-            .await
+                .multi_beacon_client
+                .publish_block(
+                    unblinded_payload.clone(),
+                    Some(BroadcastValidation::ConsensusAndEquivocation),
+                    fork,
+                )
+                .await
             {
                 error!(request_id = %request_id, error = %err, "error publishing block");
                 return Err(err.into());
@@ -721,7 +744,7 @@ where
                 request_id,
             );
             trace.broadcaster_block_broadcast = get_nanos_timestamp()?;
-    
+
             // While we wait for the block to propagate, we also store the payload information
             trace.on_deliver_payload = get_nanos_timestamp()?;
             self.save_delivered_payload_info(
@@ -745,7 +768,6 @@ where
             if remaining_sleep_ms > 0 {
                 sleep(Duration::from_millis(remaining_sleep_ms)).await;
             }
-
         }
 
         let get_payload_response = match GetPayloadResponse::try_from_execution_payload(&payload) {
@@ -829,8 +851,8 @@ where
     /// - Only allows requests for the current slot until a certain cutoff time.
     fn validate_bid_request_time(&self, bid_request: &BidRequest) -> Result<(), ProposerApiError> {
         let curr_timestamp_ms = get_millis_timestamp()? as i64;
-        let slot_start_timestamp = self.chain_info.genesis_time_in_secs +
-            (bid_request.slot * self.chain_info.seconds_per_slot);
+        let slot_start_timestamp = self.chain_info.genesis_time_in_secs
+            + (bid_request.slot * self.chain_info.seconds_per_slot);
         let ms_into_slot = curr_timestamp_ms.saturating_sub((slot_start_timestamp * 1000) as i64);
 
         if ms_into_slot > GET_HEADER_REQUEST_CUTOFF_MS {
@@ -1004,9 +1026,19 @@ where
                 GossipedMessage::GetPayload(payload) => {
                     let api_clone = self.clone();
                     tokio::spawn(async move {
-                        let mut trace = GetPayloadTrace { receive: get_nanos_timestamp().unwrap_or_default(), ..Default::default() };
+                        let mut trace = GetPayloadTrace {
+                            receive: get_nanos_timestamp().unwrap_or_default(),
+                            ..Default::default()
+                        };
                         info!(request_id = %payload.request_id, "processing gossiped payload");
-                        match api_clone._get_payload(payload.signed_blinded_beacon_block, &mut trace, &payload.request_id).await {
+                        match api_clone
+                            ._get_payload(
+                                payload.signed_blinded_beacon_block,
+                                &mut trace,
+                                &payload.request_id,
+                            )
+                            .await
+                        {
                             Ok(_get_payload_response) => {
                                 info!(request_id = %payload.request_id, "gossiped payload processed");
                             }
