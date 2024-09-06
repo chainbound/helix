@@ -125,22 +125,28 @@ pub struct RouterConfig {
 }
 
 impl RouterConfig {
-
     // Function to resolve condensed variants and replace them with real routes
     pub fn resolve_condensed_routes(&mut self) {
-
         if self.enabled_routes.is_empty() {
             // If no routes are enabled, enable all real routes
-            self.extend([Route::BuilderApi, Route::ProposerApi, Route::DataApi]);
-        } else {
-            if self.contains(Route::All) {
-                // If All is present, replace it with all real routes
-                self.remove(&Route::All);
-                self.extend([Route::BuilderApi, Route::ProposerApi, Route::DataApi]);
-            }   
+            self.extend([
+                Route::BuilderApi,
+                Route::ProposerApi,
+                Route::DataApi,
+                Route::ConstraintsApi,
+            ]);
+        } else if self.contains(Route::All) {
+            // If All is present, replace it with all real routes
+            self.remove(&Route::All);
+            self.extend([
+                Route::BuilderApi,
+                Route::ProposerApi,
+                Route::DataApi,
+                Route::ConstraintsApi,
+            ]);
         }
 
-        // Replace BuilderApi, ProposerApi, DataApi with their real routes
+        // Replace BuilderApi, ProposerApi, DataApi, ConstraintsApi with their real routes
         self.replace_condensed_with_real(
             Route::BuilderApi,
             &[
@@ -163,6 +169,18 @@ impl RouterConfig {
                 Route::ProposerPayloadDelivered,
                 Route::BuilderBidsReceived,
                 Route::ValidatorRegistration,
+            ],
+        );
+
+        self.replace_condensed_with_real(
+            Route::ConstraintsApi,
+            &[
+                Route::SubmitBuilderConstraints,
+                Route::DelegateSubmissionRights,
+                Route::RevokeSubmissionRights,
+                Route::BuilderConstraints,
+                Route::BuilderConstraintsStream,
+                Route::GetHeaderWithProofs,
             ],
         );
     }
@@ -191,7 +209,6 @@ impl RouterConfig {
     }
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouteInfo {
     pub route: Route,
@@ -212,6 +229,7 @@ pub enum Route {
     BuilderApi,
     ProposerApi,
     DataApi,
+    ConstraintsApi,
     GetValidators,
     SubmitBlock,
     SubmitBlockOptimistic,
@@ -224,6 +242,22 @@ pub enum Route {
     ProposerPayloadDelivered,
     BuilderBidsReceived,
     ValidatorRegistration,
+
+    // Constraints API: Builder <https://chainbound.github.io/bolt-docs/api/builder>
+    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#constraints>
+    SubmitBuilderConstraints,
+    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#delegate>
+    DelegateSubmissionRights,
+    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#revoke>
+    RevokeSubmissionRights,
+    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#get_header_with_proofs>
+    GetHeaderWithProofs,
+
+    // Constraints API: Relay <https://chainbound.github.io/bolt-docs/api/relay>
+    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#constraints>
+    BuilderConstraints,
+    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#constraints_stream>
+    BuilderConstraintsStream,
 }
 
 impl Route {
@@ -231,23 +265,45 @@ impl Route {
         match self {
             Route::GetValidators => format!("{PATH_BUILDER_API}{PATH_GET_VALIDATORS}"),
             Route::SubmitBlock => format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK}"),
-            Route::SubmitBlockOptimistic => format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK_OPTIMISTIC_V2}"),
+            Route::SubmitBlockOptimistic => {
+                format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK_OPTIMISTIC_V2}")
+            }
             Route::SubmitHeader => format!("{PATH_BUILDER_API}{PATH_SUBMIT_HEADER}"),
             Route::GetTopBid => format!("{PATH_BUILDER_API}{PATH_GET_TOP_BID}"),
             Route::Status => format!("{PATH_PROPOSER_API}{PATH_STATUS}"),
             Route::RegisterValidators => format!("{PATH_PROPOSER_API}{PATH_REGISTER_VALIDATORS}"),
             Route::GetHeader => format!("{PATH_PROPOSER_API}{PATH_GET_HEADER}"),
+            Route::GetHeaderWithProofs => {
+                format!("{PATH_PROPOSER_API}{PATH_GET_HEADER_WITH_PROOFS}")
+            }
             Route::GetPayload => format!("{PATH_PROPOSER_API}{PATH_GET_PAYLOAD}"),
-            Route::ProposerPayloadDelivered => format!("{PATH_DATA_API}{PATH_PROPOSER_PAYLOAD_DELIVERED}"),
+            Route::ProposerPayloadDelivered => {
+                format!("{PATH_DATA_API}{PATH_PROPOSER_PAYLOAD_DELIVERED}")
+            }
             Route::BuilderBidsReceived => format!("{PATH_DATA_API}{PATH_BUILDER_BIDS_RECEIVED}"),
             Route::ValidatorRegistration => format!("{PATH_DATA_API}{PATH_VALIDATOR_REGISTRATION}"),
+            Route::SubmitBuilderConstraints => {
+                format!("{PATH_CONSTRAINTS_API}{PATH_SUBMIT_BUILDER_CONSTRAINTS}")
+            }
+            Route::DelegateSubmissionRights => {
+                format!("{PATH_CONSTRAINTS_API}{PATH_DELEGATE_SUBMISSION_RIGHTS}")
+            }
+            Route::RevokeSubmissionRights => {
+                format!("{PATH_CONSTRAINTS_API}{PATH_REVOKE_SUBMISSION_RIGHTS}")
+            }
+            Route::BuilderConstraints => {
+                format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS}")
+            }
+            Route::BuilderConstraintsStream => {
+                format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS_STREAM}")
+            }
             Route::All => panic!("All is not a real route"),
             Route::BuilderApi => panic!("BuilderApi is not a real route"),
             Route::ProposerApi => panic!("ProposerApi is not a real route"),
             Route::DataApi => panic!("DataApi is not a real route"),
+            Route::ConstraintsApi => panic!("ConstraintsApi is not a real route"),
         }
     }
-    
 }
 
 fn default_duration() -> u64 {
@@ -266,25 +322,34 @@ fn test_config() {
     config.broadcasters.push(BroadcasterConfig::BeaconClient(BeaconClientConfig {
         url: "http://localhost:8080".to_string(),
     }));
-    config.network_config = NetworkConfig::Custom { dir_path: "test".to_string(), genesis_validator_root: Default::default(), genesis_time: 1 };
+    config.network_config = NetworkConfig::Custom {
+        dir_path: "test".to_string(),
+        genesis_validator_root: Default::default(),
+        genesis_time: 1,
+    };
     config.logging =
         LoggingConfig::File { dir_path: "hello".to_string(), file_name: "test".to_string() };
-    config.validator_preferences = ValidatorPreferences { filtering: Filtering::Regional, trusted_builders: None, header_delay: true};
+    config.validator_preferences = ValidatorPreferences {
+        filtering: Filtering::Regional,
+        trusted_builders: None,
+        header_delay: true,
+    };
     config.router_config = RouterConfig {
         enabled_routes: vec![
             RouteInfo { route: Route::GetValidators, rate_limit: None },
             RouteInfo { route: Route::SubmitBlock, rate_limit: None },
             RouteInfo { route: Route::SubmitBlockOptimistic, rate_limit: None },
             RouteInfo { route: Route::ValidatorRegistration, rate_limit: None },
-            RouteInfo { route: Route::GetHeader, rate_limit: Some(RateLimitInfo { limit_duration_ms: 12, max_requests: 3 }) },
+            RouteInfo {
+                route: Route::GetHeader,
+                rate_limit: Some(RateLimitInfo { limit_duration_ms: 12, max_requests: 3 }),
+            },
             RouteInfo { route: Route::GetPayload, rate_limit: None },
             RouteInfo { route: Route::ProposerPayloadDelivered, rate_limit: None },
             RouteInfo { route: Route::RegisterValidators, rate_limit: None },
             RouteInfo { route: Route::Status, rate_limit: None },
         ]
-        .iter()
-        .cloned()
-        .collect(),
+        .to_vec(),
     };
     println!("{}", serde_yaml::to_string(&config).unwrap());
 }
