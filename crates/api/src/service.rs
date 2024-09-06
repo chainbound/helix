@@ -9,14 +9,18 @@ use tokio::{
 use tracing::{error, info};
 
 use crate::{
-    builder::optimistic_simulator::OptimisticSimulator, gossiper::grpc_gossiper::GrpcGossiperClientManager, relay_data::{BidsCache, DeliveredPayloadsCache}, router::{build_router, BuilderApiProd, DataApiProd, ProposerApiProd}
+    builder::optimistic_simulator::OptimisticSimulator,
+    gossiper::grpc_gossiper::GrpcGossiperClientManager,
+    relay_data::{BidsCache, DeliveredPayloadsCache},
+    router::{build_router, BuilderApiProd, ConstraintsApiProd, DataApiProd, ProposerApiProd},
 };
 use helix_beacon_client::{
     beacon_client::BeaconClient, fiber_broadcaster::FiberBroadcaster,
     multi_beacon_client::MultiBeaconClient, BlockBroadcaster, MultiBeaconClientTrait,
 };
 use helix_common::{
-    chain_info::ChainInfo, signing::RelaySigningContext, BroadcasterConfig, NetworkConfig, RelayConfig
+    chain_info::ChainInfo, signing::RelaySigningContext, BroadcasterConfig, NetworkConfig,
+    RelayConfig,
 };
 use helix_database::{postgres::postgres_db_service::PostgresDatabaseService, DatabaseService};
 use helix_datastore::redis::redis_cache::RedisCache;
@@ -42,7 +46,7 @@ impl ApiService {
         let db = Arc::new(postgres_db);
 
         let builder_infos = db.get_all_builder_infos().await.expect("failed to load builder infos");
-        
+
         let auctioneer = Arc::new(RedisCache::new(&config.redis.url, builder_infos).await.unwrap());
 
         let auctioneer_clone = auctioneer.clone();
@@ -76,18 +80,26 @@ impl ApiService {
             NetworkConfig::Sepolia => ChainInfo::for_sepolia(),
             NetworkConfig::Holesky => ChainInfo::for_holesky(),
             NetworkConfig::Custom { ref dir_path, ref genesis_validator_root, genesis_time } => {
-                match ChainInfo::for_custom(dir_path.clone(), genesis_validator_root.clone(), genesis_time) {
+                match ChainInfo::for_custom(
+                    dir_path.clone(),
+                    genesis_validator_root.clone(),
+                    genesis_time,
+                ) {
                     Ok(chain_info) => chain_info,
                     Err(err) => {
                         error!("Failed to load custom chain info: {:?}", err);
                         std::process::exit(1);
                     }
                 }
-            },
+            }
         });
 
-        let housekeeper =
-            Housekeeper::new(db.clone(), multi_beacon_client.clone(), auctioneer.clone(), config.clone());
+        let housekeeper = Housekeeper::new(
+            db.clone(),
+            multi_beacon_client.clone(),
+            auctioneer.clone(),
+            config.clone(),
+        );
         let mut housekeeper_head_events = head_event_receiver.resubscribe();
         tokio::spawn(async move {
             loop {
@@ -172,24 +184,36 @@ impl ApiService {
 
         let data_api = Arc::new(DataApiProd::new(validator_preferences.clone(), db.clone()));
 
+        let constraints_api = Arc::new(ConstraintsApiProd::new());
+
         let bids_cache: Arc<BidsCache> = Arc::new(
             Cache::builder()
                 .time_to_live(Duration::from_secs(10))
                 .time_to_idle(Duration::from_secs(5))
-                .build()
+                .build(),
         );
 
         let delivered_payloads_cache: Arc<DeliveredPayloadsCache> = Arc::new(
             Cache::builder()
                 .time_to_live(Duration::from_secs(10))
                 .time_to_idle(Duration::from_secs(5))
-                .build()
+                .build(),
         );
 
-        let router = build_router(&mut config.router_config, builder_api, proposer_api, data_api, bids_cache, delivered_payloads_cache);
+        let router = build_router(
+            &mut config.router_config,
+            builder_api,
+            proposer_api,
+            data_api,
+            constraints_api,
+            bids_cache,
+            delivered_payloads_cache,
+        );
 
         let listener = tokio::net::TcpListener::bind("0.0.0.0:4040").await.unwrap();
-        match axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await {
+        match axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+        {
             Ok(_) => info!("Server exited successfully"),
             Err(e) => error!("Server exited with error: {e}"),
         }

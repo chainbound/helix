@@ -53,6 +53,7 @@ pub fn build_router(
     builder_api: Arc<BuilderApiProd>,
     proposer_api: Arc<ProposerApiProd>,
     data_api: Arc<DataApiProd>,
+    constraints_api: Arc<ConstraintsApiProd>,
     bids_cache: Arc<BidsCache>,
     delivered_payloads_cache: Arc<DeliveredPayloadsCache>,
 ) -> Router {
@@ -161,6 +162,7 @@ pub fn build_router(
         .layer(Extension(builder_api))
         .layer(Extension(proposer_api))
         .layer(Extension(data_api))
+        .layer(Extension(constraints_api))
         .layer(Extension(bids_cache))
         .layer(Extension(delivered_payloads_cache));
 
