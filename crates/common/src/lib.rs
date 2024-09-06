@@ -5,6 +5,7 @@ pub mod chain_info;
 pub mod config;
 pub mod eth;
 pub mod pending_block;
+pub mod proofs;
 pub mod proposer;
 pub mod signing;
 pub mod simulator;

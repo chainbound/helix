@@ -2,6 +2,7 @@ use crate::{
     bid_submission::{BidSubmission, BidTrace},
     capella,
     deneb::BlobsBundle,
+    proofs::InclusionProofs,
     versioned_payload::PayloadAndBlobs,
 };
 use ethereum_consensus::{
@@ -192,14 +193,14 @@ impl BidSubmission for SignedBidSubmission {
                     Ok(root) => Some(root),
                     Err(_) => None,
                 }
-            },
+            }
             ExecutionPayload::Deneb(payload) => {
                 let mut withdrawals = payload.withdrawals.clone();
                 match withdrawals.hash_tree_root() {
                     Ok(root) => Some(root),
                     Err(_) => None,
                 }
-            },
+            }
         }
     }
 
@@ -333,4 +334,8 @@ pub struct SignedBidSubmissionDeneb {
     pub execution_payload: ExecutionPayload,
     pub blobs_bundle: BlobsBundle,
     pub signature: BlsSignature,
+    /// The Merkle proofs of inclusion as needed by the Constraints API.
+    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#get_header_with_proofs>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proofs: Option<InclusionProofs>,
 }

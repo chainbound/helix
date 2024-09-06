@@ -4,7 +4,8 @@ use ethereum_consensus::{
     types::mainnet::{SignedBeaconBlock, SignedBlindedBeaconBlock},
 };
 use helix_common::{
-    deneb::SignedBlockContents, signed_proposal::VersionedSignedProposal, versioned_payload::PayloadAndBlobs, Filtering, ValidatorPreferences
+    deneb::SignedBlockContents, signed_proposal::VersionedSignedProposal,
+    versioned_payload::PayloadAndBlobs, Filtering, ValidatorPreferences,
 };
 use serde::Deserialize;
 
