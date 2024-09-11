@@ -29,6 +29,15 @@ pub enum SignedBidSubmission {
 }
 
 impl BidSubmission for SignedBidSubmission {
+    // fn proof(&self) -> Option<&InclusionProofs> {
+    //     match self {
+    //         SignedBidSubmission::Deneb(signed_bid_submission) => {
+    //             signed_bid_submission.proofs.as_ref()
+    //         }
+    //         SignedBidSubmission::Capella(_) => None,
+    //     }
+    // }
+
     fn bid_trace(&self) -> &BidTrace {
         match self {
             SignedBidSubmission::Deneb(signed_bid_submission) => &signed_bid_submission.message,
@@ -217,6 +226,15 @@ impl BidSubmission for SignedBidSubmission {
 }
 
 impl SignedBidSubmission {
+    pub fn proofs(&self) -> Option<&InclusionProofs> {
+        match self {
+            SignedBidSubmission::Deneb(signed_bid_submission) => {
+                signed_bid_submission.proofs.as_ref()
+            }
+            SignedBidSubmission::Capella(_) => None,
+        }
+    }
+
     pub fn verify_signature(
         &mut self,
         context: &ethereum_consensus::state_transition::Context,

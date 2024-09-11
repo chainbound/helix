@@ -129,6 +129,9 @@ pub enum BuilderApiError {
 
     #[error("V2 submissions invalid if proposer requires regional filtering")]
     V2SubmissionsInvalidIfProposerRequiresRegionalFiltering,
+
+    #[error("Inclusion proof is missing")]
+    InclusionProofMissing,
 }
 
 impl IntoResponse for BuilderApiError {
@@ -262,6 +265,9 @@ impl IntoResponse for BuilderApiError {
             },
             BuilderApiError::V2SubmissionsInvalidIfProposerRequiresRegionalFiltering => {
                 (StatusCode::BAD_REQUEST, "V2 submissions invalid if proposer requires regional filtering").into_response()
+            }
+            BuilderApiError::InclusionProofMissing => {
+                (StatusCode::BAD_REQUEST, "Inclusion proof is missing").into_response()
             }
         }
     }

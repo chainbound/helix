@@ -58,6 +58,7 @@ chrono = "0.4.19"
 # Ethereum Types
 ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus", rev = "fc049504a200926c8bd5f0fbd3f9696c6c6f699d" }
 reth-primitives = { git = "https://github.com/paradigmxyz/reth", rev = "5dd5555c5c7d8e43420e273e7005b8af63a847a5" }
+# ssz_rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "1df4cd9b", features = ["sha2-asm"]}
 
 # Logging
 tracing = "0.1.37"

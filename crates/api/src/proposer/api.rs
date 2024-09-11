@@ -439,8 +439,41 @@ where
         }
     }
 
-    pub async fn get_header_with_proofs() {
-        unimplemented!()
+    /// 
+    pub async fn get_header_with_proofs(
+        Extension(proposer_api): Extension<Arc<ProposerApi<A, DB, M, G>>>,
+        Path(GetHeaderParams { slot, parent_hash, public_key }): Path<GetHeaderParams>,
+    ) -> Result<impl IntoResponse, ProposerApiError> {
+        let request_id = Uuid::new_v4();
+        let mut trace = GetHeaderTrace { receive: get_nanos_timestamp()?, ..Default::default() };
+
+        let (head_slot, _) = *proposer_api.curr_slot_info.read().await;
+        debug!(
+            request_id = %request_id,
+            event = "get_header_with_proofs",
+            head_slot = head_slot,
+            request_ts = trace.receive,
+            slot = slot,
+            parent_hash = ?parent_hash,
+            public_key = ?public_key,
+        );
+
+        let bid_request = BidRequest { slot, parent_hash, public_key };
+
+        // Dont allow requests for past slots
+        if bid_request.slot < head_slot {
+            warn!(request_id = %request_id, "request for past slot");
+            return Err(ProposerApiError::RequestForPastSlot {
+                request_slot: bid_request.slot,
+                head_slot,
+            });
+        }
+
+        if let Err(err) = proposer_api.validate_bid_request_time(&bid_request) {
+            warn!(request_id = %request_id, err = %err, "invalid bid request time");
+            return Err(err);
+        }
+        trace.validation
     }
 
     /// Retrieves the execution payload for a given blinded beacon block.

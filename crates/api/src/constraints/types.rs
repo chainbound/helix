@@ -3,6 +3,7 @@ use ethereum_consensus::{
     ssz::prelude::List,
 };
 use helix_common::api::constraints_api::MAX_CONSTRAINTS_PER_SLOT;
+use reth_primitives::Bytes;
 
 #[derive(Debug, Clone)]
 pub struct SignedConstraints {
@@ -15,7 +16,15 @@ pub struct ConstraintsMessage {
     pub validator_index: u64,
     pub slot: u64,
     pub top: bool,
-    pub transactions: List<Transaction, MAX_CONSTRAINTS_PER_SLOT>,
+    pub transactions: Vec<Bytes>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstraintsWithProofData {
+    pub message: ConstraintsMessage,
+    /// List of transaction hashes and corresponding hash tree roots. Same order
+    /// as the transactions in the `message`.
+    pub proof_data: Vec<(TxHash, HashTreeRoot)>,
 }
 
 #[derive(Debug, Clone)]
