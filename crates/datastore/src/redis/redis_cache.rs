@@ -35,7 +35,7 @@ use crate::{
             get_cache_bid_trace_key, get_cache_get_header_response_key, get_execution_payload_key,
             get_floor_bid_key, get_floor_bid_value_key, get_latest_bid_by_builder_key,
             get_latest_bid_by_builder_key_str_builder_pub_key, get_seen_block_hashes_key,
-            get_top_bid_value_key,
+            get_top_bid_value_key, get_inclusion_proof_key,
         },
     },
     types::{
@@ -534,6 +534,29 @@ impl RedisCache {
 
 #[async_trait]
 impl Auctioneer for RedisCache {
+    async fn save_inclusion_proof(
+        &self,
+        slot: u64,
+        proposer_pub_key: &BlsPublicKey,
+        bid_block_hash: &Hash32,
+        inclusion_proof: &InclusionProofs,
+    ) -> Result<(), AuctioneerError> {
+        let key = get_inclusion_proof_key(slot, proposer_pub_key, bid_block_hash);
+        self.set(&key, inclusion_proof, Some(BID_CACHE_EXPIRY_S))
+            .await
+            .map_err(AuctioneerError::RedisError)
+    }
+
+    async fn get_inclusion_proof(
+        &self,
+        slot: u64,
+        proposer_pub_key: &BlsPublicKey,
+        bid_block_hash: &Hash32,
+    ) -> Result<Option<InclusionProofs>, AuctioneerError> {
+        let key = get_inclusion_proof_key(slot, proposer_pub_key, bid_block_hash);
+        self.get(&key).await.map_err(AuctioneerError::RedisError)
+    }
+
     async fn get_last_slot_delivered(&self) -> Result<Option<u64>, AuctioneerError> {
         self.get(LAST_SLOT_DELIVERED_KEY).await.map_err(AuctioneerError::RedisError)
     }
@@ -2492,4 +2515,41 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_save_and_get_inclusion_proof() {
+        let cache = RedisCache::new("redis://127.0.0.1/", Vec::new()).await.unwrap();
+        cache.clear_cache().await.unwrap();
+
+        let slot = 42;
+        let proposer_pub_key = BlsPublicKey::default();
+        let bid_block_hash = Hash32::try_from([5u8; 32].as_ref()).unwrap();
+
+        let inclusion_proof = InclusionProofs {
+            proofs: vec!["proof1".to_string(), "proof2".to_string()],
+        };
+
+        // Test: Save inclusion proof
+        let save_result = cache
+            .save_inclusion_proof(slot, &proposer_pub_key, &bid_block_hash, &inclusion_proof)
+            .await;
+        assert!(save_result.is_ok(), "Failed to save inclusion proof");
+
+        // Test: Get inclusion proof
+        let get_result = cache
+            .get_inclusion_proof(slot, &proposer_pub_key, &bid_block_hash)
+            .await;
+        assert!(get_result.is_ok(), "Failed to get inclusion proof");
+        assert_eq!(
+            get_result.unwrap(),
+            Some(inclusion_proof.clone()),
+            "Mismatch in fetched inclusion proof"
+        );
+
+        // Test: Get non-existent inclusion proof
+        let non_existent_proof = cache
+            .get_inclusion_proof(slot + 1, &proposer_pub_key, &bid_block_hash)
+            .await;
+        assert!(non_existent_proof.is_ok(), "Failed to get non-existent inclusion proof");
+        assert!(non_existent_proof.unwrap().is_none(), "Expected None for non-existent inclusion proof");
+    }
 }

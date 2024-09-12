@@ -5,7 +5,7 @@ use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 use helix_common::{
     api::builder_api::TopBidUpdate, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
+    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::InclusionProofs, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
 };
 use helix_database::BuilderInfoDocument;
 
@@ -15,6 +15,20 @@ use tokio_stream::{Stream, StreamExt};
 #[async_trait]
 #[auto_impl::auto_impl(Arc)]
 pub trait Auctioneer: Send + Sync + Clone {
+    async fn save_inclusion_proof(
+        &self,
+        slot: u64,
+        proposer_pub_key: &BlsPublicKey,
+        bid_block_hash: &Hash32,
+        inclusion_proof: &InclusionProofs,
+    ) -> Result<(), AuctioneerError>;
+    async fn get_inclusion_proof(
+        &self,
+        slot: u64,
+        proposer_pub_key: &BlsPublicKey,
+        bid_block_hash: &Hash32,
+    ) -> Result<Option<InclusionProofs>, AuctioneerError>;
+        
     async fn get_last_slot_delivered(&self) -> Result<Option<u64>, AuctioneerError>;
     async fn check_and_set_last_slot_and_hash_delivered(
         &self,
