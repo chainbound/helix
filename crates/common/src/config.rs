@@ -180,7 +180,7 @@ impl RouterConfig {
                 Route::RevokeSubmissionRights,
                 Route::BuilderConstraints,
                 Route::BuilderConstraintsStream,
-                Route::BlocksWithProofs,
+                Route::SubmitBlockWithProofs,
                 Route::GetHeaderWithProofs,
             ],
         );
@@ -260,7 +260,7 @@ pub enum Route {
     /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#constraints_stream>
     BuilderConstraintsStream,
     /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#blocks_with_proofs>
-    BlocksWithProofs,
+    SubmitBlockWithProofs,
 }
 
 impl Route {
@@ -300,7 +300,7 @@ impl Route {
             Route::BuilderConstraintsStream => {
                 format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS_STREAM}")
             }
-            Route::BlocksWithProofs => {
+            Route::SubmitBlockWithProofs => {
                 format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_BLOCKS_WITH_PROOFS}")
             }
             Route::All => panic!("All is not a real route"),

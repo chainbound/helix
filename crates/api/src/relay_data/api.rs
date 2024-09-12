@@ -139,7 +139,7 @@ impl<DB: DatabaseService + 'static> DataApi<DB> {
         unimplemented!()
     }
 
-    pub async fn blocks_with_proofs() {
-        unimplemented!()
-    }
+    // pub async fn blocks_with_proofs() {
+    //     unimplemented!()
+    // }
 }

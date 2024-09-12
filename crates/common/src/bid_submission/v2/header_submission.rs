@@ -1,10 +1,7 @@
 use std::default;
 
 use crate::{
-    bid_submission::{bid_trace, BidSubmission, BidTrace},
-    capella,
-    deneb::{self, BlobsBundle},
-    versioned_payload_header::VersionedExecutionPayloadHeader,
+    api::constraints_api::InclusionProofs, bid_submission::{bid_trace, BidSubmission, BidTrace}, capella, deneb::{self, BlobsBundle}, versioned_payload_header::VersionedExecutionPayloadHeader
 };
 use ethereum_consensus::{
     altair::Bytes32,
@@ -113,6 +110,10 @@ pub struct SignedHeaderSubmissionDeneb {
 }
 
 impl BidSubmission for SignedHeaderSubmission {
+    fn proofs(&self) -> Option<&InclusionProofs> {
+        None
+    }
+    
     fn bid_trace(&self) -> &BidTrace {
         match self {
             Self::Capella(signed_header_submission) => &signed_header_submission.message.bid_trace,

@@ -85,6 +85,9 @@ pub fn build_router(
             Route::SubmitBlockOptimistic => {
                 router = router.route(&route.path(), post(BuilderApiProd::submit_block_v2));
             }
+            Route::SubmitBlockWithProofs => {
+                router = router.route(&route.path(), post(BuilderApiProd::submit_block_with_proofs));
+            }
             Route::SubmitHeader => {
                 router = router.route(&route.path(), post(BuilderApiProd::submit_header));
             }
@@ -124,9 +127,9 @@ pub fn build_router(
             Route::BuilderConstraintsStream => {
                 router = router.route(&route.path(), get(DataApiProd::constraints_stream));
             }
-            Route::BlocksWithProofs => {
-                router = router.route(&route.path(), get(DataApiProd::blocks_with_proofs));
-            }
+            // Route::BlocksWithProofs => {
+            //     router = router.route(&route.path(), get(DataApiProd::blocks_with_proofs));
+            // }
             Route::SubmitBuilderConstraints => {
                 router = router.route(&route.path(), post(ConstraintsApiProd::submit_constraints));
             }
