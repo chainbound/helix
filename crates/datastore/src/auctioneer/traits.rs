@@ -5,7 +5,8 @@ use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 use helix_common::{
     api::builder_api::TopBidUpdate, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::InclusionProofs, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
+    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo,
+    api::constraints_api::InclusionProofs,
 };
 use helix_database::BuilderInfoDocument;
 

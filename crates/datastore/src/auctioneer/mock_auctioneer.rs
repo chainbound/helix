@@ -6,7 +6,8 @@ use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 use helix_common::{
     api::builder_api::TopBidUpdate, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, eth::SignedBuilderBid, pending_block::PendingBlock, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, BuilderInfo, ProposerInfo, proofs::InclusionProofs
+    }, eth::SignedBuilderBid, pending_block::PendingBlock, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, BuilderInfo, ProposerInfo,
+    api::constraints_api::InclusionProofs,
 };
 use helix_database::types::BuilderInfoDocument;
 use tokio_stream::Stream;
@@ -51,7 +52,7 @@ impl Auctioneer for MockAuctioneer {
     ) -> Result<Option<InclusionProofs>, AuctioneerError> {
         Ok(None)
     }
-    
+
     async fn get_last_slot_delivered(&self) -> Result<Option<u64>, AuctioneerError> {
         Ok(None)
     }

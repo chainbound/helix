@@ -45,6 +45,8 @@ use helix_common::{
     versioned_payload::PayloadAndBlobs,
     BidRequest, Filtering, GetHeaderTrace, GetPayloadTrace, RegisterValidatorsTrace,
     ValidatorPreferences,
+    proofs::BidWithProofs,
+    api::constraints_api::InclusionProofs,
 };
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
@@ -439,8 +441,99 @@ where
         }
     }
 
-    pub async fn get_header_with_proofs() {
-        unimplemented!()
+    pub async fn get_header_with_proofs(
+        Extension(proposer_api): Extension<Arc<ProposerApi<A, DB, M, G>>>,
+        Path(GetHeaderParams { slot, parent_hash, public_key }): Path<GetHeaderParams>,
+    ) -> Result<impl IntoResponse, ProposerApiError> {
+        let request_id = Uuid::new_v4();
+        let mut trace = GetHeaderTrace { receive: get_nanos_timestamp()?, ..Default::default() };
+
+        let (head_slot, _) = *proposer_api.curr_slot_info.read().await;
+        debug!(
+            request_id = %request_id,
+            event = "get_header_with_proofs",
+            head_slot = head_slot,
+            request_ts = trace.receive,
+            slot = slot,
+            parent_hash = ?parent_hash,
+            public_key = ?public_key,
+        );
+
+        let bid_request = BidRequest { slot, parent_hash, public_key };
+
+        // Dont allow requests for past slots
+        if bid_request.slot < head_slot {
+            warn!(request_id = %request_id, "request for past slot");
+            return Err(ProposerApiError::RequestForPastSlot {
+                request_slot: bid_request.slot,
+                head_slot,
+            });
+        }
+
+        if let Err(err) = proposer_api.validate_bid_request_time(&bid_request) {
+            warn!(request_id = %request_id, err = %err, "invalid bid request time");
+            return Err(err);
+        }
+        trace.validation_complete = get_nanos_timestamp()?;
+
+        // Get best bid from auctioneer
+        let get_best_bid_res = proposer_api
+            .auctioneer
+            .get_best_bid(bid_request.slot, &bid_request.parent_hash, &bid_request.public_key)
+            .await;
+        trace.best_bid_fetched = get_nanos_timestamp()?;
+        info!(request_id = %request_id, trace = ?trace, "best bid fetched");
+
+        match get_best_bid_res {
+            Ok(Some(bid)) => {
+                if bid.value() == U256::ZERO {
+                    warn!(request_id = %request_id, "best bid value is 0");
+                    return Err(ProposerApiError::BidValueZero);
+                }
+
+                // Get inclusion proofs
+                let proofs = proposer_api
+                    .get_inclusion_proof(
+                        slot, 
+                        &bid_request.public_key, 
+                        bid.block_hash(), 
+                        &request_id)
+                        .await;
+
+                info!(
+                    request_id = %request_id,
+                    value = ?bid.value(),
+                    block_hash = ?bid.block_hash(),
+                    "delivering bid with proofs",
+                );
+    
+                // Save trace to DB
+                proposer_api
+                    .save_get_header_call(
+                        slot,
+                        bid_request.parent_hash,
+                        bid_request.public_key,
+                        bid.block_hash().clone(),
+                        trace,
+                        request_id,
+                    )
+                    .await;
+    
+                // Return header with proofs
+                Ok(axum::Json(BidWithProofs {
+                    bid,
+                    proofs,
+                }))
+            }
+            Ok(None) => {
+                warn!(request_id = %request_id, "no bid found");
+                Err(ProposerApiError::NoBidPrepared)
+            }
+            Err(err) => {
+                error!(request_id = %request_id, error = %err, "error getting bid");
+                Err(ProposerApiError::InternalServerError)
+            }
+        }
     }
 
     /// Retrieves the execution payload for a given blinded beacon block.
@@ -1049,6 +1142,31 @@ where
                     });
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// Fetches the inclusion proof for a given slot, public key, and block hash.
+    async fn get_inclusion_proof(
+        &self,
+        slot: u64,
+        public_key: &PublicKey,
+        bid_block_hash: &ByteVector<32>,
+        request_id: &Uuid,
+    ) -> Option<InclusionProofs> {
+        let inclusion_proof = self
+            .auctioneer
+            .get_inclusion_proof(slot, public_key, bid_block_hash)
+            .await;
+        match inclusion_proof {
+            Ok(Some(proof)) => Some(proof),
+            Ok(None) => {
+                warn!(request_id = %request_id, "inclusion proof not found");
+                None
+            }
+            Err(err) => {
+                error!(request_id = %request_id, error = %err, "error fetching inclusion proof");
+                None
             }
         }
     }
