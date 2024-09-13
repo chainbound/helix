@@ -63,17 +63,9 @@ impl ConstraintsApi {
             // there is already check_known_validators by pubkey present
             // 
             // Get the bls pub key from the index
-            // then verify the signature of the signed_constraints
-
-
-            // From GO impl to remember -
-            // TODO: uncomment this code once we send messages signed with correct validator pubkey on the sidecar.
-            // We can for setup this for the devnet but it's not trivial so we'll skip it for now.
-            // if !ok {
-            // 	log.Error("Invalid BLS signature over constraint message")
-            // 	api.RespondError(w, http.StatusBadRequest, fmt.Sprintf("Invalid BLS signature over constraint message %s", messageSSZ))
-            // 	return
-            // }
+            // then verify the signature of the signed_constraints.
+            // Once we support sending messages signed with correct validator pubkey on the sidecar, 
+            // return error if invalid
 
             let message = signed_constraints.message.clone();
 
