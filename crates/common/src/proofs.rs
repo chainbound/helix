@@ -1,30 +1,18 @@
-// use ethereum_consensus::deneb::minimal::MAX_TRANSACTIONS_PER_PAYLOAD;
-// use ethereum_consensus::ssz::prelude::ssz_rs;
-// use ethereum_consensus::{
-//     phase0::Bytes32,
-//     ssz::prelude::{List, SimpleSerialize},
-// };
-
-// use crate::api::constraints_api::MAX_CONSTRAINTS_PER_SLOT;
-
-use reth_primitives::{TxHash, B256};
 use ethereum_consensus::{
-    bellatrix::presets::minimal::Transaction, crypto::PublicKey, primitives::BlsSignature,
-    ssz::prelude::List,
+    deneb::minimal::MAX_TRANSACTIONS_PER_PAYLOAD,
+    bellatrix::presets::minimal::Transaction,
+    primitives::BlsSignature,
+    phase0::Bytes32,
+    ssz::prelude::*,
 };
-// #[derive(Debug, Clone, SimpleSerialize, serde::Serialize, serde::Deserialize)]
-// pub struct InclusionProofs {
-//     transaction_hashes: List<Bytes32, MAX_CONSTRAINTS_PER_SLOT>,
-//     generalized_indexes: List<u64, MAX_CONSTRAINTS_PER_SLOT>,
-//     merkle_hashes: List<List<Bytes32, MAX_TRANSACTIONS_PER_PAYLOAD>, MAX_CONSTRAINTS_PER_SLOT>,
-// }
-use crate::api::constraints_api::{InclusionProofs, MAX_CONSTRAINTS_PER_SLOT};
-use crate::eth::SignedBuilderBid;
+use reth_primitives::{TxHash, B256};
+use alloy_primitives::B256 as AB256;
 
-pub struct BidWithProofs {
-    pub bid: SignedBuilderBid,
-    pub proofs: Option<InclusionProofs>,
-}
+// Import the new version of the `ssz-rs` crate for multiproof verification.
+use ::ssz_rs as ssz;
+
+use crate::api::constraints_api::MAX_CONSTRAINTS_PER_SLOT;
+use crate::eth::SignedBuilderBid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
@@ -38,6 +26,25 @@ pub enum ProofError {
     VerificationFailed,
 }
 
+#[derive(Debug, Clone, SimpleSerialize, serde::Serialize, serde::Deserialize)]
+pub struct InclusionProofs {
+    pub transaction_hashes: List<Bytes32, MAX_CONSTRAINTS_PER_SLOT>,
+    pub generalized_indexes: List<u64, MAX_CONSTRAINTS_PER_SLOT>,
+    pub merkle_hashes: List<Bytes32, MAX_TRANSACTIONS_PER_PAYLOAD>,
+}
+
+impl InclusionProofs {
+    /// Returns the total number of leaves in the tree.
+    pub fn total_leaves(&self) -> usize {
+        self.transaction_hashes.len()
+    }
+}
+
+pub struct BidWithProofs {
+    pub bid: SignedBuilderBid,
+    pub proofs: Option<InclusionProofs>,
+}
+
 pub type HashTreeRoot = tree_hash::Hash256;
 
 #[derive(Debug)]
@@ -48,12 +55,14 @@ pub struct ConstraintsWithProofData {
     pub proof_data: Vec<(TxHash, HashTreeRoot)>,
 }
 
+// NOTE: This type is redefined here to avoid circular dependencies.
 #[derive(Debug, Clone)]
 pub struct SignedConstraints {
     pub message: ConstraintsMessage,
     pub signature: BlsSignature,
 }
 
+// NOTE: This type is redefined here to avoid circular dependencies.
 #[derive(Debug, Clone)]
 pub struct ConstraintsMessage {
     pub validator_index: u64,
@@ -97,7 +106,7 @@ pub fn verify_multiproofs(
             for (saved_hash, leaf) in &constraint.proof_data {
                 if **saved_hash == ****hash {
                     found = true;
-                    leaves.push(B256::from(leaf.0));
+                    leaves.push(AB256::from(leaf.0));
                     break;
                 }
             }
@@ -112,12 +121,16 @@ pub fn verify_multiproofs(
         }
     }
 
+    // Conversions to the correct types (and versions of the same type)
+    let merkle_proofs = proofs.merkle_hashes.to_vec().iter().map(|h| AB256::from_slice(h.as_ref())).collect::<Vec<_>>();
+    let indeces = proofs.generalized_indexes.to_vec().iter().map(|h| *h as usize).collect::<Vec<_>>();
+
     // Verify the Merkle multiproof against the root
-    ssz_rs::multiproofs::verify_merkle_multiproof(
+    ssz::multiproofs::verify_merkle_multiproof(
         &leaves,
-        &proofs.merkle_hashes,
-        &proofs.generalized_indexes,
-        root,
+        &merkle_proofs,
+        &indeces,
+        AB256::from_slice(root.as_slice()),
     )
     .map_err(|_| ProofError::VerificationFailed)?;
 

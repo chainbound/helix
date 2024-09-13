@@ -2,7 +2,7 @@ use crate::{
     bid_submission::{BidSubmission, BidTrace},
     capella,
     deneb::BlobsBundle,
-    api::constraints_api::InclusionProofs,
+    proofs::InclusionProofs,
     versioned_payload::PayloadAndBlobs,
 };
 use ethereum_consensus::{

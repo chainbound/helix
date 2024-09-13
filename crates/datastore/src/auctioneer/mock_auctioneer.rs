@@ -7,7 +7,7 @@ use helix_common::{
     api::builder_api::TopBidUpdate, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
     }, eth::SignedBuilderBid, pending_block::PendingBlock, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, BuilderInfo, ProposerInfo,
-    api::constraints_api::InclusionProofs,
+    proofs::InclusionProofs,
 };
 use helix_database::types::BuilderInfoDocument;
 use tokio_stream::Stream;

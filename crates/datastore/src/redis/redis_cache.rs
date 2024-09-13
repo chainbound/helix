@@ -16,7 +16,7 @@ use tokio::sync::broadcast;
 use tracing::error;
 
 use helix_common::{
-    api::constraints_api::InclusionProofs,
+    proofs::InclusionProofs,
     bid_submission::{BidTrace, SignedBidSubmission},
     eth::SignedBuilderBid,
     signing::RelaySigningContext,

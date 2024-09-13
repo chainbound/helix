@@ -46,7 +46,7 @@ use helix_common::{
     BidRequest, Filtering, GetHeaderTrace, GetPayloadTrace, RegisterValidatorsTrace,
     ValidatorPreferences,
     proofs::BidWithProofs,
-    api::constraints_api::InclusionProofs,
+    proofs::InclusionProofs,
 };
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};

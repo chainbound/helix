@@ -14,7 +14,7 @@ use ethereum_consensus::{
     Fork,
 };
 
-use crate::api::constraints_api::InclusionProofs;
+use crate::proofs::InclusionProofs;
 
 #[auto_impl::auto_impl(Arc)]
 pub trait BidSubmission {

@@ -2597,6 +2597,7 @@ dependencies = [
 name = "helix-common"
 version = "0.0.1"
 dependencies = [
+ "alloy-primitives 0.7.4",
  "auto_impl",
  "axum 0.7.4",
  "clap",
@@ -2609,7 +2610,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml 0.9.25",
- "ssz_rs 0.9.0 (git+https://github.com/ralexstokes/ssz-rs)",
+ "ssz_rs 0.9.0 (git+https://github.com/ralexstokes/ssz-rs?rev=1df4cd9)",
  "thiserror",
  "tokio",
  "tokio-postgres",
@@ -5570,6 +5571,18 @@ dependencies = [
 [[package]]
 name = "ssz_rs"
 version = "0.9.0"
+source = "git+https://github.com/ralexstokes/ssz-rs?rev=1df4cd9#1df4cd9b849a48c44a6105abc3a38d21cd4fd8d3"
+dependencies = [
+ "alloy-primitives 0.7.4",
+ "bitvec",
+ "serde",
+ "sha2 0.9.9",
+ "ssz_rs_derive 0.9.0 (git+https://github.com/ralexstokes/ssz-rs?rev=1df4cd9)",
+]
+
+[[package]]
+name = "ssz_rs"
+version = "0.9.0"
 source = "git+https://github.com/ralexstokes/ssz-rs?rev=db3bca54b23522df224b1d7d4ac3c3b805a49e84#db3bca54b23522df224b1d7d4ac3c3b805a49e84"
 dependencies = [
  "alloy-primitives 0.4.2",
@@ -5581,21 +5594,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "ssz_rs"
-version = "0.9.0"
-source = "git+https://github.com/ralexstokes/ssz-rs#1df4cd9b849a48c44a6105abc3a38d21cd4fd8d3"
-dependencies = [
- "alloy-primitives 0.7.4",
- "bitvec",
- "serde",
- "sha2 0.9.9",
- "ssz_rs_derive 0.9.0 (git+https://github.com/ralexstokes/ssz-rs)",
-]
-
-[[package]]
 name = "ssz_rs_derive"
 version = "0.9.0"
-source = "git+https://github.com/ralexstokes/ssz-rs?rev=db3bca54b23522df224b1d7d4ac3c3b805a49e84#db3bca54b23522df224b1d7d4ac3c3b805a49e84"
+source = "git+https://github.com/ralexstokes/ssz-rs?rev=1df4cd9#1df4cd9b849a48c44a6105abc3a38d21cd4fd8d3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5605,7 +5606,7 @@ dependencies = [
 [[package]]
 name = "ssz_rs_derive"
 version = "0.9.0"
-source = "git+https://github.com/ralexstokes/ssz-rs#1df4cd9b849a48c44a6105abc3a38d21cd4fd8d3"
+source = "git+https://github.com/ralexstokes/ssz-rs?rev=db3bca54b23522df224b1d7d4ac3c3b805a49e84#db3bca54b23522df224b1d7d4ac3c3b805a49e84"
 dependencies = [
  "proc-macro2",
  "quote",

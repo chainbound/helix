@@ -6,7 +6,7 @@ use helix_common::{
     api::builder_api::TopBidUpdate, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
     }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo,
-    api::constraints_api::InclusionProofs,
+    proofs::InclusionProofs,
 };
 use helix_database::BuilderInfoDocument;
 

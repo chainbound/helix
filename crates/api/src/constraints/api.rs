@@ -57,7 +57,7 @@ impl ConstraintsApi {
         }
 
         // Add all the constraints to the cache
-        // NOTE: Maybe its better to use redis cache
+        // NOTE: Its better to use redis for caching
         for signed_constraints in constraints {
             // TODO: Implement check_known_validators_by_index fn in the postgress_db_service
             // there is already check_known_validators by pubkey present

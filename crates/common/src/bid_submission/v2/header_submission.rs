@@ -1,7 +1,7 @@
 use std::default;
 
 use crate::{
-    api::constraints_api::InclusionProofs, bid_submission::{bid_trace, BidSubmission, BidTrace}, capella, deneb::{self, BlobsBundle}, versioned_payload_header::VersionedExecutionPayloadHeader
+    proofs::InclusionProofs, bid_submission::{bid_trace, BidSubmission, BidTrace}, capella, deneb::{self, BlobsBundle}, versioned_payload_header::VersionedExecutionPayloadHeader
 };
 use ethereum_consensus::{
     altair::Bytes32,

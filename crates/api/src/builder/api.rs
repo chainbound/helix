@@ -576,7 +576,7 @@ where
             OptimisticVersion::NotOptimistic
         };
 
-        // Save submission to db, including proofs.
+        // Save submission to db.
         tokio::spawn(async move {
             if let Err(err) = api.db.store_block_submission(payload, Arc::new(trace), optimistic_version as i16).await {
                 error!(
