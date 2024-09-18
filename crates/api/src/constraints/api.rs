@@ -1,13 +1,11 @@
 use axum::{
-    extract::ws::{WebSocket, WebSocketUpgrade, Message},
-    body::{to_bytes, Body},
-    http::{Request, StatusCode},
-    response::{IntoResponse, Response},
-    Extension,
+    body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
-use ethereum_consensus::{deneb::Slot, ssz};
+use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
 use helix_common::ConstraintSubmissionTrace;
-use tracing::{info, warn};
+use helix_datastore::{error::AuctioneerError, Auctioneer};
+use helix_utils::signing::verify_constraints_signature;
+use tracing::{info, warn, error};
 use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc};
 
@@ -16,7 +14,10 @@ use crate::proposer::api::get_nanos_timestamp;
 use super::types::SignedConstraints;
 
 #[derive(Debug, Default)]
-pub struct ConstraintsApi {
+pub struct ConstraintsApi <A>
+where A: Auctioneer + 'static, 
+{
+    auctioneer: Arc<A>,
     constraints: HashMap<Slot, Vec<SignedConstraints>>,
 }
 
@@ -28,16 +29,21 @@ pub enum ConstraintApiError {
     InvalidSignature,
     #[error("No constraints submitted")]
     NilConstraints,
+    #[error("datastore error: {0}")]
+    AuctioneerError(#[from] AuctioneerError),
 }
 
-impl ConstraintsApi {
+impl<A> ConstraintsApi<A>
+where A: Auctioneer + 'static,
+{
     pub fn new() -> Self {
         Self { ..Default::default() }
     }
 
     /// Handles the submission of batch of signed constraints.
-    pub async fn submit_constraints(Extension(constraints_api): Extension<Arc<ConstraintsApi>>, 
-    req: Request<Body>
+    pub async fn submit_constraints(
+        Extension(api): Extension<Arc<ConstraintsApi<A>>>, 
+        req: Request<Body>,
     ) -> Result<StatusCode, ConstraintApiError> {
         let request_id = Uuid::new_v4();
         let mut trace = 
@@ -57,26 +63,23 @@ impl ConstraintsApi {
         }
 
         // Add all the constraints to the cache
-        // NOTE: Its better to use redis for caching
         for signed_constraints in constraints {
-            // TODO: Implement check_known_validators_by_index fn in the postgress_db_service
-            // there is already check_known_validators by pubkey present
-            // 
-            // Get the bls pub key from the index
-            // then verify the signature of the signed_constraints.
+            // Verify the signature.
+            verify_constraints_signature(
+                &mut signed_constraints.message,
+                &signed_constraints.signature,
+                &signed_constraints.message.pubkey,
+                None);
+
             // Once we support sending messages signed with correct validator pubkey on the sidecar, 
             // return error if invalid
 
             let message = signed_constraints.message.clone();
 
-            // Finally add the constraints to the cache
-            if constraints_api.constraints.contains_key(&message.slot) {
-                constraints_api.constraints.get_mut(&message.slot).unwrap().push(signed_constraints);
-            } else {
-                constraints_api.constraints.insert(message.slot, vec![signed_constraints]);
-            }
+            // Finally add the constraints to the redis cache
+            api.save_constraints_to_auctioneer(&mut trace, message.slot, signed_constraints, &request_id);
         }
-        // TODO: Not really needed
+        // NOTE: Not really needed
         trace.cache = get_nanos_timestamp()?;
 
         // Log some final info
@@ -98,6 +101,41 @@ impl ConstraintsApi {
 
     pub async fn revoke() {
         unimplemented!()
+    }
+}
+
+// Helpers
+impl<A> ConstraintsApi<A>
+where A: Auctioneer + 'static,
+{
+    async fn save_constraints_to_auctioneer(
+        &self,
+        trace: &mut ConstraintSubmissionTrace,
+        slot: Slot,
+        signed_constraints: &Vec<SignedConstraints>,
+        request_id: &Uuid,
+    ) -> Result<(), ConstraintApiError> {
+        // Save the constraints to the auctioneer
+        match self.auctioneer
+            .save_constraints(slot, signed_constraints)
+            .await
+        {
+            Ok(()) => {
+                trace.auctioneer = get_nanos_timestamp()?;
+                info!(
+                    request_id = %request_id,
+                    timestamp_after_auctioneer = Instant::now().elapsed().as_nanos(),
+                    auctioneer_latency_ns = trace.auctioneer.saturating_sub(trace.cache),
+                    num_constraints = signed_constraints.len(),
+                    "Constraints saved to auctioneer",
+                );
+                Ok(())
+            }
+            Err(err) => {
+                error!(request_id = %request_id, error = %err, "Failed to save constraints to auctioneer");
+                Err(ConstraintApiError::AuctioneerError(err))
+            }
+        }
     }
 }
 

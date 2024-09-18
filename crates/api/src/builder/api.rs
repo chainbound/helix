@@ -36,7 +36,7 @@ use helix_common::{
             SignedHeaderSubmission, SignedHeaderSubmissionCapella, SignedHeaderSubmissionDeneb,
         },
         BidSubmission, BidTrace, SignedBidSubmission,
-    }, chain_info::ChainInfo, proofs::verify_multiproofs, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
+    }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
 };
 use helix_database::DatabaseService;
 use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
@@ -381,7 +381,7 @@ where
     /// 6. Simulates the block to validate the payment.
     /// 7. Saves the bid and proofs to the auctioneer and db.
     ///
-    /// Implements this API: <https://flashbots.github.io/relay-specs/#/Builder/submitBlockWithProofs>
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#blocks_with_proofs>
     pub async fn submit_block_with_proofs(
         Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
         req: Request<Body>,
@@ -520,8 +520,14 @@ where
             .verify_submitted_block(payload, next_duty, &builder_info, &mut trace, &request_id, &payload_attributes)
             .await?;
 
-        // TODO: Verify inclusion proofs
+        // Fetch constraints
+        let constraints = api.auctioneer.get_constraints(payload.slot()).await?;
+        let Some(constraints) = constraints else {
+            warn!(request_id = %request_id, "no constraints found for slot");
+        };
 
+        // TODO: Verify inclusion proofs
+        // api.verify_inclusion_proof(&payload);
 
         // If cancellations are enabled, then abort now if there is a later submission
         if is_cancellations_enabled {
@@ -558,8 +564,14 @@ where
             None => { /* Bid wasn't saved, so no need to gossip as it will never be served */ }
         }
 
-        // Save inclusion proofs to auctioneer
-        // api.save_inclusion_proof(slot, public_key, bid_block_hash, inclusion_proof, request_id)
+        // Save inclusion proofs to auctioneer.
+        api.save_inclusion_proof(
+            payload.slot(),
+            payload.proposer_public_key(),
+            payload.block_hash(),
+            payload.proofs().expect("proofs not found"),
+            &request_id
+        );
 
         // Log some final info
         trace.request_finish = get_nanos_timestamp()?;
@@ -1347,9 +1359,11 @@ where
     async fn verify_inclusion_proof(
         &self,
         payload: &SignedBidSubmission,
+        constraints: &[ConstraintsWithProofData],
     ) -> Result<(), BuilderApiError> {
-        let inclusion_proof = payload.proofs().expect("proofs not found");
-        // verify_multiproofs(constraints, proofs, root)
+        let proofs = payload.proofs().expect("proofs not found");
+        // let root = payload.transactions().roo
+        verify_multiproofs(constraints, proofs, root);
         unimplemented!()
     }
 
@@ -1576,59 +1590,18 @@ where
         }
     }
 
-    async fn save_bid_with_proofs_to_auctioneer(
-        &self,
-        slot: u64,
-        public_key: &BlsPublicKey,
-        bid_block_hash: &Hash32,
-        inclusion_proof: &InclusionProofs,
-        request_id: &Uuid,
-    ) -> Result<Option<(SignedBuilderBid, PayloadAndBlobs)>, BuilderApiError> {
-        let mut update_bid_result = SaveBidAndUpdateTopBidResponse::default();
-
-        match self
-            .auctioneer
-            .save_bid_with_proofs_and_update_top_bid(
-                slot,
-                public_key,
-                bid_block_hash,
-                inclusion_proof,
-                &mut update_bid_result,
-                &self.signing_context,
-            )
-            .await
-        {
-            Ok(Some((builder_bid, execution_payload))) => {
-                // Log the results of the bid submission
-                log_save_bid_info(
-                    &update_bid_result,
-                    get_nanos_timestamp()?,
-                    get_nanos_timestamp()?,
-                    request_id,
-                );
-
-                Ok(Some((builder_bid, execution_payload)))
-            }
-            Ok(None) => Ok(None),
-            Err(err) => {
-                error!(request_id = %request_id, error = %err, "could not save bid with proofs and update top bids");
-                Err(BuilderApiError::AuctioneerError(err))
-            }
-        }
-    }
-
     /// This function saves the inclusion proof to the auctioneer.
     async fn save_inclusion_proof(
         &self,
         slot: u64,
-        public_key: &BlsPublicKey,
+        proposer_pub_key: &BlsPublicKey,
         bid_block_hash: &Hash32,
         inclusion_proof: &InclusionProofs,
         request_id: &Uuid,
     ) -> Result<(), BuilderApiError> {
         if let Err(err) = self
             .auctioneer
-            .save_inclusion_proof(slot, public_key, bid_block_hash, inclusion_proof)
+            .save_inclusion_proof(slot, proposer_pub_key, bid_block_hash, inclusion_proof)
             .await
         {
             error!(request_id = %request_id, error = %err, "failed to save inclusion proof");

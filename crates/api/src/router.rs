@@ -46,7 +46,7 @@ pub type ProposerApiProd = ProposerApi<
 
 pub type DataApiProd = DataApi<PostgresDatabaseService>;
 
-pub type ConstraintsApiProd = ConstraintsApi;
+pub type ConstraintsApiProd = ConstraintsApi<RedisCache>;
 
 pub fn build_router(
     router_config: &mut RouterConfig,
@@ -127,9 +127,6 @@ pub fn build_router(
             Route::BuilderConstraintsStream => {
                 router = router.route(&route.path(), get(DataApiProd::constraints_stream));
             }
-            // Route::BlocksWithProofs => {
-            //     router = router.route(&route.path(), get(DataApiProd::blocks_with_proofs));
-            // }
             Route::SubmitBuilderConstraints => {
                 router = router.route(&route.path(), post(ConstraintsApiProd::submit_constraints));
             }

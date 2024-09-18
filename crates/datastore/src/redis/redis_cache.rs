@@ -50,6 +50,7 @@ use crate::{
 
 use super::utils::{get_hash_from_hex, get_pending_block_builder_block_hash_key, get_pending_block_builder_key, get_pubkey_from_hex};
 
+const CONSTRAINTS_CACHE_EXPIRY_S: usize = 12;
 const BID_CACHE_EXPIRY_S: usize = 45;
 const PENDING_BLOCK_EXPIRY_S: usize = 45;
 const HOUSEKEEPER_LOCK_EXPIRY_MS: usize = 45_000;
@@ -535,6 +536,32 @@ impl RedisCache {
 
 #[async_trait]
 impl Auctioneer for RedisCache {
+    // TODO: Save signed constraints with proof data
+    async fn save_constraints(
+        &self,
+        slot: u64,
+        constraints: &Vec<SignedConstraints>,        
+    ) -> Result<(), AuctioneerError> {
+        let key = get_constraints_key(slot);
+
+        // Append the new constraints to the existing constraints
+        let prev_constraints = self.get(&key).await.map_err(AuctioneerError::RedisError);
+        if Ok(Some(prev_constraints)) {
+            constraints.extend(prev_constraints);
+        };
+        self.set(&key, constraints, Some(CONSTRAINTS_CACHE_EXPIRY_S))
+            .await
+            .map_err(AuctioneerError::RedisError)
+    }
+
+    async fn get_constraints(
+        &self,
+        slot: u64,
+    ) -> Result<Option<Vec<SignedConstraints>>, AuctioneerError> {
+        let key = get_constraints_key(slot);
+        self.get(&key).await.map_err(AuctioneerError::RedisError)
+    }
+
     async fn save_inclusion_proof(
         &self,
         slot: u64,
@@ -543,7 +570,7 @@ impl Auctioneer for RedisCache {
         inclusion_proof: &InclusionProofs,
     ) -> Result<(), AuctioneerError> {
         let key = get_inclusion_proof_key(slot, proposer_pub_key, bid_block_hash);
-        self.set(&key, inclusion_proof, Some(BID_CACHE_EXPIRY_S))
+        self.set(&key, inclusion_proof, Some(CONSTRAINTS_CACHE_EXPIRY_S))
             .await
             .map_err(AuctioneerError::RedisError)
     }

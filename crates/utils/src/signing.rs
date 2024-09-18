@@ -9,6 +9,18 @@ use ethereum_consensus::{
     Error, Fork,
 };
 
+pub fn verify_constraints_signature<T: Merkleized>(
+    message: &mut T,
+    signature: &BlsSignature,
+    public_key: &BlsPublicKey,
+    context: &Context,
+) -> Result<(), Error> {
+    // TODO: Figure out the correct value for domain field
+    let domain = compute_builder_domain(context)?;
+    verify_signed_data(message, signature, public_key, domain)?;
+    Ok(())
+}
+
 pub fn verify_signed_consensus_message<T: Merkleized>(
     message: &mut T,
     signature: &BlsSignature,

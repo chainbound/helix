@@ -5,8 +5,7 @@ use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 use helix_common::{
     api::builder_api::TopBidUpdate, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo,
-    proofs::InclusionProofs,
+    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::{InclusionProofs, SignedConstraints}, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
 };
 use helix_database::BuilderInfoDocument;
 
@@ -16,6 +15,16 @@ use tokio_stream::{Stream, StreamExt};
 #[async_trait]
 #[auto_impl::auto_impl(Arc)]
 pub trait Auctioneer: Send + Sync + Clone {
+    async fn save_constraints(
+        &self,
+        slot: u64,
+        signed_constraints: &Vec<SignedConstraints>,
+    ) -> Result<(), AuctioneerError>;
+    async fn get_constraints(
+        &self,
+        slot: u64,
+    ) -> Result<Option<Vec<SignedConstraints>>, AuctioneerError>;
+    
     async fn save_inclusion_proof(
         &self,
         slot: u64,

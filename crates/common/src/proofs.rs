@@ -55,6 +55,31 @@ pub struct ConstraintsWithProofData {
     pub proof_data: Vec<(TxHash, HashTreeRoot)>,
 }
 
+// TODO: Requires Alloy. Trying to not add alloy to prevent cargo lock issues.
+// impl TryFrom<ConstraintsMessage> for ConstraintsWithProofData {
+//     // type Error = Eip2718Error;
+
+//     fn try_from(value: ConstraintsMessage) -> Result<Self, Self::Error> {
+//         let transactions = value
+//             .transactions
+//             .iter()
+//             .map(|tx| {
+//                 let tx_hash = *TxEnvelope::decode_2718(&mut tx.as_ref())?.tx_hash();
+
+//                 let tx_root =
+//                     tree_hash::TreeHash::tree_hash_root(&Transaction::<
+//                         <DenebSpec as EthSpec>::MaxBytesPerTransaction,
+//                     >::from(tx.to_vec()));
+
+//                 Ok((tx_hash, tx_root))
+//             })
+//             .collect::<Result<Vec<_>, Eip2718Error>>()?;
+
+//         Ok(Self { message: value, proof_data: transactions })
+//     }
+// }
+
+
 // NOTE: This type is redefined here to avoid circular dependencies.
 #[derive(Debug, Clone)]
 pub struct SignedConstraints {
