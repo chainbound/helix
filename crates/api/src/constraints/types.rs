@@ -12,7 +12,7 @@ pub struct SignedConstraints {
 
 #[derive(Debug, Clone)]
 pub struct ConstraintsMessage {
-    pub validator_index: u64,
+    pub pubkey: PublicKey,
     pub slot: u64,
     pub top: bool,
     pub transactions: List<Transaction, MAX_CONSTRAINTS_PER_SLOT>,
@@ -26,8 +26,8 @@ pub struct SignedDelegation {
 
 #[derive(Debug, Clone)]
 pub struct Delegation {
-    pub validator_index: u64,
-    pub pubkey: PublicKey,
+    pub validator_pubkey: PublicKey,
+    pub delegatee_pubkey: PublicKey,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +38,6 @@ pub struct SignedRevocation {
 
 #[derive(Debug, Clone)]
 pub struct Revocation {
-    pub validator_index: u64,
-    pub pubkey: PublicKey,
+    pub validator_pubkey: PublicKey,
+    pub delegatee_pubkey: PublicKey,
 }
