@@ -2,10 +2,10 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::{ConstraintSubmissionTrace, api::constraints_api::{SignedDelegation, SignedRevocation}, proofs::SignedConstraints};
+use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation}, chain_info::ChainInfo, proofs::SignedConstraints, ConstraintSubmissionTrace};
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
-use helix_utils::signing::verify_constraints_signature;
+use helix_utils::signing::verify_signed_builder_message as verify_signature;
 use tracing::{info, warn, error};
 use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
@@ -41,6 +41,7 @@ where
 {
     auctioneer: Arc<A>,
     db: Arc<DB>,
+    chain_info: Arc<ChainInfo>,
 }
 
 impl<A, DB> ConstraintsApi <A, DB>
@@ -51,8 +52,9 @@ where
     pub fn new(
         auctioneer: Arc<A>,
         db: Arc<DB>,
+        chain_info: Arc<ChainInfo>,
     ) -> Self {
-        Self { auctioneer, db }
+        Self { auctioneer, db, chain_info }
     }
 
     /// Handles the submission of batch of signed constraints.
@@ -81,12 +83,15 @@ where
 
         // Add all the constraints to the cache
         for signed_constraints in constraints {
-            // // Verify the signature.
-            // verify_constraints_signature(
-            //     &mut signed_constraints.message,
-            //     &signed_constraints.signature,
-            //     &signed_constraints.message.pubkey,
-            //     None);
+            // Verify the signature.
+            if let Err(e) = verify_signature(
+                &mut signed_constraints.message,
+                &signed_constraints.signature,
+                &signed_constraints.message.pubkey,
+                &api.chain_info.context
+            ) {
+                return Err(ConstraintsApiError::InvalidSignature);
+            };
 
             // Once we support sending messages signed with correct validator pubkey on the sidecar, 
             // return error if invalid
@@ -141,15 +146,15 @@ where
         trace.decode = get_nanos_timestamp()?;
 
         // Verify the delegation signature
-        // if !verify_constraints_signature(
-        //     &signed_delegation.message,
-        //     &signed_delegation.signature,
-        //     &signed_delegation.message.validator_pubkey,
-        //      context??
-        // ) {
-        //     return Err(ConstraintsApiError::InvalidSignature);
-        // }
-        // trace.verify_signature = get_nanos_timestamp()?;
+        if let Err(e) = verify_signature(
+            &mut signed_delegation.message,
+            &signed_delegation.signature,
+            &signed_delegation.message.validator_pubkey,
+            &api.chain_info.context
+        ) {
+            return Err(ConstraintsApiError::InvalidSignature);
+        };
+        trace.verify_signature = get_nanos_timestamp()?;
 
         // Store the delegation in the database
         tokio::spawn( async move {
@@ -206,15 +211,15 @@ where
         trace.decode = get_nanos_timestamp()?;
 
         // Verify the revocation signature
-        // if !verify_constraints_signature(
-        //     &signed_revocation.message,
-        //     &signed_revocation.signature,
-        //     &signed_revocation.message.validator_pubkey,
-        //      context??
-        // ) {
-        //     return Err(ConstraintsApiError::InvalidSignature);
-        // }
-        // trace.verify_signature = get_nanos_timestamp()?;
+        if let Err(e) = verify_signature(
+            &mut signed_revocation.message,
+            &signed_revocation.signature,
+            &signed_revocation.message.validator_pubkey,
+            &api.chain_info.context
+        ) {
+            return Err(ConstraintsApiError::InvalidSignature);
+        };
+        trace.verify_signature = get_nanos_timestamp()?;
 
         // Store the delegation in the database
         tokio::spawn( async move {

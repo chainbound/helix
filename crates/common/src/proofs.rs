@@ -1,7 +1,7 @@
 use ethereum_consensus::{
     deneb::minimal::MAX_TRANSACTIONS_PER_PAYLOAD,
     bellatrix::presets::minimal::Transaction,
-    primitives::BlsSignature,
+    primitives::{BlsSignature, BlsPublicKey},
     phase0::Bytes32,
     ssz::prelude::*,
 };
@@ -92,7 +92,7 @@ pub struct SignedConstraints {
 // NOTE: This type is redefined here to avoid circular dependencies.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Serializable)]
 pub struct ConstraintsMessage {
-    pub validator_index: u64,
+    pub pubkey: BlsPublicKey,
     pub slot: u64,
     pub top: bool,
     pub transactions: List<Transaction, MAX_CONSTRAINTS_PER_SLOT>,
