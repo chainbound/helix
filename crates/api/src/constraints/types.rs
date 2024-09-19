@@ -1,5 +1,5 @@
 use ethereum_consensus::{
-    bellatrix::presets::minimal::Transaction, crypto::PublicKey, primitives::BlsSignature,
+    bellatrix::presets::minimal::Transaction, primitives::{BlsSignature, BlsPublicKey},
     ssz::prelude::List,
 };
 use helix_common::api::constraints_api::MAX_CONSTRAINTS_PER_SLOT;
@@ -12,32 +12,8 @@ pub struct SignedConstraints {
 
 #[derive(Debug, Clone)]
 pub struct ConstraintsMessage {
-    pub pubkey: PublicKey,
+    pub pubkey: BlsPublicKey,
     pub slot: u64,
     pub top: bool,
     pub transactions: List<Transaction, MAX_CONSTRAINTS_PER_SLOT>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SignedDelegation {
-    pub message: Delegation,
-    pub signature: BlsSignature,
-}
-
-#[derive(Debug, Clone)]
-pub struct Delegation {
-    pub validator_pubkey: PublicKey,
-    pub delegatee_pubkey: PublicKey,
-}
-
-#[derive(Debug, Clone)]
-pub struct SignedRevocation {
-    pub message: Revocation,
-    pub signature: BlsSignature,
-}
-
-#[derive(Debug, Clone)]
-pub struct Revocation {
-    pub validator_pubkey: PublicKey,
-    pub delegatee_pubkey: PublicKey,
 }

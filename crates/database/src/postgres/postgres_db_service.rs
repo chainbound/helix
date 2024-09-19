@@ -12,10 +12,10 @@ use ethereum_consensus::{altair::Hash32, primitives::BlsPublicKey, ssz::prelude:
 
 use helix_common::{
     api::{
-        self, builder_api::BuilderGetValidatorsResponseEntry, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
+        self, builder_api::BuilderGetValidatorsResponseEntry, constraints_api::{SignedDelegation, SignedRevocation}, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
     }, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidSubmission, BidTrace, SignedBidSubmission,
-    }, deneb::SignedValidatorRegistration, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, Filtering, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, RelayConfig, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary
+    }, deneb::SignedValidatorRegistration, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, Filtering, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, RelayConfig, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary,
 };
 use tokio_postgres::{row, types::ToSql, NoTls};
 use tracing::{error, info};
@@ -365,6 +365,49 @@ impl Default for PostgresDatabaseService {
 
 #[async_trait]
 impl DatabaseService for PostgresDatabaseService {
+    async fn save_validator_delegation(
+        &self,
+        signed_delegation: SignedDelegation,
+    ) -> Result<(), DatabaseError> {
+        let mut client = self.pool.get().await?;
+        let transaction = client.transaction().await?;
+
+        let validator_pubkey = signed_delegation.message.validator_pubkey.as_ref();
+        let delegatee_pubkey = signed_delegation.message.delegatee_pubkey.as_ref();
+
+        transaction.execute(
+            "
+                INSERT INTO validator_delegations (validator_pubkey, delegatee_pubkey)
+                VALUES ($1, $2)
+                ON CONFLICT (validator_pubkey) DO UPDATE SET delegatee_pubkey = EXCLUDED.delegatee_pubkey
+            ",
+            &[&validator_pubkey, &delegatee_pubkey],
+        ).await?;
+
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn revoke_validator_delegation(
+        &self,
+        signed_revocation: SignedRevocation,
+    ) -> Result<(), DatabaseError> {
+        let mut client = self.pool.get().await?;
+
+        let validator_pubkey = signed_revocation.message.validator_pubkey.as_ref();
+        let delegatee_pubkey = signed_revocation.message.delegatee_pubkey.as_ref();
+
+        client.execute(
+            "
+                DELETE FROM validator_delegations
+                WHERE validator_pubkey = $1 AND delegatee_pubkey = $2
+            ",
+            &[&validator_pubkey, &delegatee_pubkey],
+        ).await?;
+
+        Ok(())
+    }
+
     async fn save_validator_registration(
         &self,
         registration_info: ValidatorRegistrationInfo,

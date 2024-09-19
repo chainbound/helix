@@ -2,7 +2,8 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::ConstraintSubmissionTrace;
+use helix_common::{ConstraintSubmissionTrace, api::constraints_api::{SignedDelegation, SignedRevocation}};
+use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
 use helix_utils::signing::verify_constraints_signature;
 use tracing::{info, warn, error};
@@ -13,38 +14,51 @@ use crate::proposer::api::get_nanos_timestamp;
 
 use super::types::SignedConstraints;
 
-#[derive(Debug, Default)]
-pub struct ConstraintsApi <A>
-where A: Auctioneer + 'static, 
-{
-    auctioneer: Arc<A>,
-    constraints: HashMap<Slot, Vec<SignedConstraints>>,
-}
-
 #[derive(Debug, thiserror::Error)]
-pub enum ConstraintApiError {
+pub enum ConstraintsApiError {
     #[error("Invalid constraints")]
     InvalidConstraints,
+    #[error("Invalid delegation ")]
+    InvalidDelegation,
+    #[error("Invalid revocation")]
+    InvalidRevocation,
     #[error("Invalid signature")]
     InvalidSignature,
-    #[error("No constraints submitted")]
+    #[error("Constraints field is empty")]
     NilConstraints,
     #[error("datastore error: {0}")]
     AuctioneerError(#[from] AuctioneerError),
 }
 
-impl<A> ConstraintsApi<A>
-where A: Auctioneer + 'static,
+#[derive(Debug, Default)]
+pub struct ConstraintsApi <A, DB>
+where 
+    A: Auctioneer + 'static,
+    DB: DatabaseService + 'static,
 {
-    pub fn new() -> Self {
-        Self { ..Default::default() }
+    auctioneer: Arc<A>,
+    db: Arc<DB>,
+}
+
+impl<A, DB> ConstraintsApi <A, DB>
+where 
+    A: Auctioneer + 'static,
+    DB: DatabaseService + 'static,
+{
+    pub fn new(
+        auctioneer: Arc<A>,
+        db: Arc<DB>,
+    ) -> Self {
+        Self { auctioneer, db }
     }
 
     /// Handles the submission of batch of signed constraints.
+    /// 
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/builder#constraints>
     pub async fn submit_constraints(
-        Extension(api): Extension<Arc<ConstraintsApi<A>>>, 
+        Extension(api): Extension<Arc<ConstraintsApi<A, DB>>>, 
         req: Request<Body>,
-    ) -> Result<StatusCode, ConstraintApiError> {
+    ) -> Result<StatusCode, ConstraintsApiError> {
         let request_id = Uuid::new_v4();
         let mut trace = 
             ConstraintSubmissionTrace {receive: get_nanos_timestamp()?, ..Default::default() };
@@ -59,7 +73,7 @@ where A: Auctioneer + 'static,
         let constraints = decode_constraints_submission(req, &mut trace, &request_id).await?;
 
         if constraints.is_empty() {
-            return Err(ConstraintApiError::NilConstraints);
+            return Err(ConstraintsApiError::NilConstraints);
         }
 
         // Add all the constraints to the cache
@@ -79,8 +93,6 @@ where A: Auctioneer + 'static,
             // Finally add the constraints to the redis cache
             api.save_constraints_to_auctioneer(&mut trace, message.slot, signed_constraints, &request_id);
         }
-        // NOTE: Not really needed
-        trace.cache = get_nanos_timestamp()?;
 
         // Log some final info
         trace.request_finish = get_nanos_timestamp()?;
@@ -94,19 +106,139 @@ where A: Auctioneer + 'static,
         Ok(StatusCode::OK)
     }
 
-    pub async fn delegate() {
-        // TODO: implement postgress db service function for storing delegated keys
-        unimplemented!()
+    /// Handles delegating constraint submission rights to another BLS key.
+    /// 
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/builder#delegate>
+    pub async fn delegate(
+        Extension(api): Extension<Arc<ConstraintsApi<A, DB>>>,
+        req: Request<Body>,
+    ) -> Result<StatusCode, ConstraintsApiError> {
+        let request_id = Uuid::new_v4();
+        let mut trace = ConstraintSubmissionTrace {
+            receive: get_nanos_timestamp()?,
+            ..Default::default()
+        };
+
+        info!(
+            request_id = %request_id,
+            event = "delegate",
+            timestamp_request_start = trace.receive,
+        );
+
+        // Read the body
+        let body = req.into_body();
+        let body_bytes = to_bytes(body, None).await?;
+        
+        // Decode the incoming request body into a `SignedDelegation`.
+        let signed_delegation: SignedDelegation = match serde_json::from_slice(&body_bytes) {
+            Ok(delegation) => delegation,
+            Err(_) => return Err(ConstraintsApiError::InvalidDelegation),
+        };
+        trace.decode = get_nanos_timestamp()?;
+
+        // Verify the delegation signature
+        // if !verify_constraints_signature(
+        //     &signed_delegation.message,
+        //     &signed_delegation.signature,
+        //     &signed_delegation.message.validator_pubkey,
+        //      context??
+        // ) {
+        //     return Err(ConstraintsApiError::InvalidSignature);
+        // }
+        // trace.verify_signature = get_nanos_timestamp()?;
+
+        // Store the delegation in the database
+        tokio::spawn( async move {
+            if let Err(err) = api.db.save_validator_delegation(signed_delegation).await {
+                error!(
+                    error = %err,
+                    "Failed to save delegation",
+                )
+            }
+        });
+
+        // Log some final info
+        trace.request_finish = get_nanos_timestamp()?;
+        info!(
+            request_id = %request_id,
+            trace = ?trace,
+            request_duration_ns = trace.request_finish.saturating_sub(trace.receive),
+            "delegate request finished",
+        );
+        
+        Ok(StatusCode::OK)
     }
 
-    pub async fn revoke() {
-        unimplemented!()
+
+    /// Handles revoking constraint submission rights from a BLS key.
+    /// 
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/builder#revoke>
+    pub async fn revoke(
+        Extension(api): Extension<Arc<ConstraintsApi<A, DB>>>,
+        req: Request<Body>,
+    ) -> Result<StatusCode, ConstraintsApiError> {
+        let request_id = Uuid::new_v4();
+        let mut trace = ConstraintSubmissionTrace {
+            receive: get_nanos_timestamp()?,
+            ..Default::default()
+        };
+
+        info!(
+            request_id = %request_id,
+            event = "revoke",
+            timestamp_request_start = trace.receive,
+        );
+
+        // Read the body
+        let body = req.into_body();
+        let body_bytes = to_bytes(body, None).await?;
+        
+        // Decode the incoming request body into a `SignedDelegation`.
+        let signed_revocation: SignedRevocation = match serde_json::from_slice(&body_bytes) {
+            Ok(revocation ) => revocation,
+            Err(_) => return Err(ConstraintsApiError::InvalidRevocation),
+        };
+        trace.decode = get_nanos_timestamp()?;
+
+        // Verify the revocation signature
+        // if !verify_constraints_signature(
+        //     &signed_revocation.message,
+        //     &signed_revocation.signature,
+        //     &signed_revocation.message.validator_pubkey,
+        //      context??
+        // ) {
+        //     return Err(ConstraintsApiError::InvalidSignature);
+        // }
+        // trace.verify_signature = get_nanos_timestamp()?;
+
+        // Store the delegation in the database
+        tokio::spawn( async move {
+            if let Err(err) = api.db.revoke_validator_delegation(signed_revocation).await {
+                error!(
+                    error = %err,
+                    "Failed to do revocation",
+                )
+            }
+        });
+
+        // Log some final info
+        trace.request_finish = get_nanos_timestamp()?;
+        info!(
+            request_id = %request_id,
+            trace = ?trace,
+            request_duration_ns = trace.request_finish.saturating_sub(trace.receive),
+            "revoke request finished",
+        );
+        
+        Ok(StatusCode::OK)
     }
 }
 
 // Helpers
-impl<A> ConstraintsApi<A>
-where A: Auctioneer + 'static,
+impl<A, DB> ConstraintsApi<A, DB>
+where 
+    A: Auctioneer + 'static,
+    DB: Database + 'static,
 {
     async fn save_constraints_to_auctioneer(
         &self,
@@ -114,18 +246,18 @@ where A: Auctioneer + 'static,
         slot: Slot,
         signed_constraints: &Vec<SignedConstraints>,
         request_id: &Uuid,
-    ) -> Result<(), ConstraintApiError> {
+    ) -> Result<(), ConstraintsApiError> {
         // Save the constraints to the auctioneer
         match self.auctioneer
             .save_constraints(slot, signed_constraints)
             .await
         {
             Ok(()) => {
-                trace.auctioneer = get_nanos_timestamp()?;
+                trace.auctioneer_update = get_nanos_timestamp()?;
                 info!(
                     request_id = %request_id,
                     timestamp_after_auctioneer = Instant::now().elapsed().as_nanos(),
-                    auctioneer_latency_ns = trace.auctioneer.saturating_sub(trace.cache),
+                    auctioneer_latency_ns = trace.auctioneer_update.saturating_sub(trace.cache),
                     num_constraints = signed_constraints.len(),
                     "Constraints saved to auctioneer",
                 );
@@ -133,7 +265,7 @@ where A: Auctioneer + 'static,
             }
             Err(err) => {
                 error!(request_id = %request_id, error = %err, "Failed to save constraints to auctioneer");
-                Err(ConstraintApiError::AuctioneerError(err))
+                Err(ConstraintsApiError::AuctioneerError(err))
             }
         }
     }
@@ -143,7 +275,7 @@ pub async fn decode_constraints_submission(
     req: Request<Body>,
     trace: &mut ConstraintSubmissionTrace,
     request_id: &Uuid,
-) -> Result<Vec<SignedConstraints>, ConstraintApiError> {
+) -> Result<Vec<SignedConstraints>, ConstraintsApiError> {
     // Check if the request is SSZ encoded
     let is_ssz = req
         .headers()
@@ -154,7 +286,6 @@ pub async fn decode_constraints_submission(
     // Read the body
     let body = req.into_body();
     let body_bytes = to_bytes(body, None).await?;
-
     
     // Decode the body
     let constraints: Vec<SignedConstraints> = if is_ssz {

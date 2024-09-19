@@ -10,8 +10,7 @@ use ethereum_consensus::{
 };
 use helix_common::{
     api::{
-        builder_api::BuilderGetValidatorsResponseEntry, data_api::BidFilters,
-        proposer_api::ValidatorRegistrationInfo,
+        builder_api::BuilderGetValidatorsResponseEntry, constraints_api::{SignedDelegation, SignedRevocation}, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
     }, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
     }, deneb::SignedValidatorRegistration, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary
@@ -39,6 +38,21 @@ impl MockDatabaseService {
 
 #[async_trait]
 impl DatabaseService for MockDatabaseService {
+    async fn save_validator_delegation(
+        &self,
+        signed_delegation: SignedDelegation,
+    ) -> Result<(), DatabaseError> {
+        println!("received delegation: {:?}", signed_delegation);
+        Ok(())
+    }
+    async fn revoke_validator_delegation(
+        &self,
+        signed_revocation: SignedRevocation,
+    ) -> Result<(), DatabaseError> {
+        println!("received revocation: {:?}", signed_revocation);
+        Ok(())
+    }
+        
     async fn save_validator_registration(
         &self,
         _entry: ValidatorRegistrationInfo,
