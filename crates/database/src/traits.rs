@@ -8,8 +8,7 @@ use ethereum_consensus::{
 
 use helix_common::{
     api::{
-        builder_api::BuilderGetValidatorsResponseEntry, data_api::BidFilters,
-        proposer_api::ValidatorRegistrationInfo,
+        builder_api::BuilderGetValidatorsResponseEntry, constraints_api::{SignedDelegation, SignedRevocation}, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
     }, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
     }, builder_info::BuilderInfo, deneb::SignedValidatorRegistration, simulator::BlockSimError, validator_preferences, versioned_payload::PayloadAndBlobs, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary

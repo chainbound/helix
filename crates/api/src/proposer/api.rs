@@ -1150,7 +1150,7 @@ where
     async fn get_inclusion_proof(
         &self,
         slot: u64,
-        public_key: &PublicKey,
+        public_key: &BlsPublicKey,
         bid_block_hash: &ByteVector<32>,
         request_id: &Uuid,
     ) -> Option<InclusionProofs> {

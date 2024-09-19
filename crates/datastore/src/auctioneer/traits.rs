@@ -18,7 +18,7 @@ pub trait Auctioneer: Send + Sync + Clone {
     async fn save_constraints(
         &self,
         slot: u64,
-        signed_constraints: &Vec<SignedConstraints>,
+        signed_constraints: SignedConstraints,
     ) -> Result<(), AuctioneerError>;
     async fn get_constraints(
         &self,

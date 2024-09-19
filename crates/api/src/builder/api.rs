@@ -18,6 +18,7 @@ use ethereum_consensus::{
 use flate2::read::GzDecoder;
 use futures::StreamExt;
 use hyper::HeaderMap;
+use reth_primitives::revm_primitives::FixedBytes;
 use tokio::{
     sync::{
         mpsc::{self, error::SendError, Receiver, Sender},
@@ -30,13 +31,13 @@ use uuid::Uuid;
 
 use helix_common::{
     api::{
-        builder_api::{BuilderGetValidatorsResponse, BuilderGetValidatorsResponseEntry}, constraints_api::InclusionProofs, proposer_api::ValidatorRegistrationInfo
+        builder_api::{BuilderGetValidatorsResponse, BuilderGetValidatorsResponseEntry}, proposer_api::ValidatorRegistrationInfo
     }, bid_submission::{
         v2::header_submission::{
             SignedHeaderSubmission, SignedHeaderSubmissionCapella, SignedHeaderSubmissionDeneb,
         },
         BidSubmission, BidTrace, SignedBidSubmission,
-    }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
+    }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData, InclusionProofs}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
 };
 use helix_database::DatabaseService;
 use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
@@ -524,6 +525,7 @@ where
         let constraints = api.auctioneer.get_constraints(payload.slot()).await?;
         let Some(constraints) = constraints else {
             warn!(request_id = %request_id, "no constraints found for slot");
+            return Err(BuilderApiError::NoConstraintsFound);
         };
 
         // TODO: Verify inclusion proofs
@@ -1362,8 +1364,8 @@ where
         constraints: &[ConstraintsWithProofData],
     ) -> Result<(), BuilderApiError> {
         let proofs = payload.proofs().expect("proofs not found");
-        // let root = payload.transactions().roo
-        verify_multiproofs(constraints, proofs, root);
+        // TODO: Value of root
+        verify_multiproofs(constraints, proofs, FixedBytes::default());
         unimplemented!()
     }
 

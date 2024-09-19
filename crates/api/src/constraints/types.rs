@@ -2,7 +2,7 @@ use ethereum_consensus::{
     bellatrix::presets::minimal::Transaction, primitives::{BlsSignature, BlsPublicKey},
     ssz::prelude::List,
 };
-use helix_common::api::constraints_api::MAX_CONSTRAINTS_PER_SLOT;
+use helix_common::{api::constraints_api::MAX_CONSTRAINTS_PER_SLOT, bellatrix::Merkleized};
 
 #[derive(Debug, Clone)]
 pub struct SignedConstraints {

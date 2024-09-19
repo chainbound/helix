@@ -40,6 +40,7 @@ impl InclusionProofs {
     }
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct BidWithProofs {
     pub bid: SignedBuilderBid,
     pub proofs: Option<InclusionProofs>,
@@ -65,6 +66,7 @@ pub struct ConstraintsWithProofData {
 //             .iter()
 //             .map(|tx| {
 //                 let tx_hash = *TxEnvelope::decode_2718(&mut tx.as_ref())?.tx_hash();
+// TODO: use keccak256 instead of tree_hash
 
 //                 let tx_root =
 //                     tree_hash::TreeHash::tree_hash_root(&Transaction::<
@@ -81,14 +83,14 @@ pub struct ConstraintsWithProofData {
 
 
 // NOTE: This type is redefined here to avoid circular dependencies.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Serializable)]
 pub struct SignedConstraints {
     pub message: ConstraintsMessage,
     pub signature: BlsSignature,
 }
 
 // NOTE: This type is redefined here to avoid circular dependencies.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Serializable)]
 pub struct ConstraintsMessage {
     pub validator_index: u64,
     pub slot: u64,

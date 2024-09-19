@@ -1,4 +1,5 @@
 // Auctioneer
+pub(crate) const CONSTRAINTS_KEY: &str = "constraints";
 pub(crate) const INCLUSION_PROOF_KEY: &str = "inclusion-proof";
 pub(crate) const LAST_HASH_DELIVERED_KEY: &str = "last-hash-delivered";
 pub(crate) const LAST_SLOT_DELIVERED_KEY: &str = "last-slot-delivered";

@@ -8,7 +8,7 @@ use ethereum_consensus::{
 };
 use futures_util::TryStreamExt;
 use helix_common::{
-    api::builder_api::TopBidUpdate, bid_submission::{v2::header_submission::SignedHeaderSubmission, BidSubmission}, pending_block::PendingBlock, versioned_payload::PayloadAndBlobs, ProposerInfo
+    api::builder_api::TopBidUpdate, bid_submission::{v2::header_submission::SignedHeaderSubmission, BidSubmission}, pending_block::PendingBlock, proofs::SignedConstraints, versioned_payload::PayloadAndBlobs, ProposerInfo
 };
 use redis::{AsyncCommands, RedisResult, Script, Value};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -48,7 +48,7 @@ use crate::{
     Auctioneer,
 };
 
-use super::utils::{get_hash_from_hex, get_pending_block_builder_block_hash_key, get_pending_block_builder_key, get_pubkey_from_hex};
+use super::utils::{get_constraints_key, get_hash_from_hex, get_pending_block_builder_block_hash_key, get_pending_block_builder_key, get_pubkey_from_hex};
 
 const CONSTRAINTS_CACHE_EXPIRY_S: usize = 12;
 const BID_CACHE_EXPIRY_S: usize = 45;
@@ -540,16 +540,27 @@ impl Auctioneer for RedisCache {
     async fn save_constraints(
         &self,
         slot: u64,
-        constraints: &Vec<SignedConstraints>,        
+        constraints: SignedConstraints,
     ) -> Result<(), AuctioneerError> {
         let key = get_constraints_key(slot);
-
-        // Append the new constraints to the existing constraints
-        let prev_constraints = self.get(&key).await.map_err(AuctioneerError::RedisError);
-        if Ok(Some(prev_constraints)) {
-            constraints.extend(prev_constraints);
+    
+        // Attempt to get the existing constraints from the cache.
+        let prev_constraints: Option<Vec<SignedConstraints>> = self
+            .get(&key)
+            .await
+            .map_err(AuctioneerError::RedisError)?;
+    
+        // Append the new constraints to the existing constraints or create a new Vec if none exist.
+        let mut all_constraints = match prev_constraints {
+            Some(mut prev_constraints) => {
+                prev_constraints.push(constraints);
+                prev_constraints
+            }
+            None => Vec::from([constraints]),
         };
-        self.set(&key, constraints, Some(CONSTRAINTS_CACHE_EXPIRY_S))
+    
+        // Save the updated constraints back to the cache.
+        self.set(&key, &all_constraints, Some(CONSTRAINTS_CACHE_EXPIRY_S))
             .await
             .map_err(AuctioneerError::RedisError)
     }

@@ -2,17 +2,14 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::{ConstraintSubmissionTrace, api::constraints_api::{SignedDelegation, SignedRevocation}};
+use helix_common::{ConstraintSubmissionTrace, api::constraints_api::{SignedDelegation, SignedRevocation}, proofs::SignedConstraints};
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
 use helix_utils::signing::verify_constraints_signature;
 use tracing::{info, warn, error};
 use uuid::Uuid;
-use std::{collections::HashMap, sync::Arc};
-
-use crate::proposer::api::get_nanos_timestamp;
-
-use super::types::SignedConstraints;
+use std::{collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use tokio::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConstraintsApiError {
@@ -28,6 +25,12 @@ pub enum ConstraintsApiError {
     NilConstraints,
     #[error("datastore error: {0}")]
     AuctioneerError(#[from] AuctioneerError),
+    #[error("axum error: {0}")]
+    AxumError(#[from] axum::Error),
+    #[error("internal error")]
+    InternalError,
+    #[error("serde decode error: {0}")]
+    SerdeDecodeError(#[from] serde_json::Error),
 }
 
 #[derive(Debug, Default)]
@@ -61,7 +64,7 @@ where
     ) -> Result<StatusCode, ConstraintsApiError> {
         let request_id = Uuid::new_v4();
         let mut trace = 
-            ConstraintSubmissionTrace {receive: get_nanos_timestamp()?, ..Default::default() };
+            ConstraintSubmissionTrace { receive: get_nanos_timestamp()?, ..Default::default() };
         
         info!(
             request_id = %request_id,
@@ -78,12 +81,12 @@ where
 
         // Add all the constraints to the cache
         for signed_constraints in constraints {
-            // Verify the signature.
-            verify_constraints_signature(
-                &mut signed_constraints.message,
-                &signed_constraints.signature,
-                &signed_constraints.message.pubkey,
-                None);
+            // // Verify the signature.
+            // verify_constraints_signature(
+            //     &mut signed_constraints.message,
+            //     &signed_constraints.signature,
+            //     &signed_constraints.message.pubkey,
+            //     None);
 
             // Once we support sending messages signed with correct validator pubkey on the sidecar, 
             // return error if invalid
@@ -127,7 +130,8 @@ where
 
         // Read the body
         let body = req.into_body();
-        let body_bytes = to_bytes(body, None).await?;
+        // TODO: Make sure length limit
+        let body_bytes = to_bytes(body, 1024 * 1024).await?;
         
         // Decode the incoming request body into a `SignedDelegation`.
         let signed_delegation: SignedDelegation = match serde_json::from_slice(&body_bytes) {
@@ -191,7 +195,8 @@ where
 
         // Read the body
         let body = req.into_body();
-        let body_bytes = to_bytes(body, None).await?;
+        // TODO: Make sure length limit
+        let body_bytes = to_bytes(body, 1024 * 1024).await?;
         
         // Decode the incoming request body into a `SignedDelegation`.
         let signed_revocation: SignedRevocation = match serde_json::from_slice(&body_bytes) {
@@ -238,13 +243,13 @@ where
 impl<A, DB> ConstraintsApi<A, DB>
 where 
     A: Auctioneer + 'static,
-    DB: Database + 'static,
+    DB: DatabaseService + 'static,
 {
     async fn save_constraints_to_auctioneer(
         &self,
         trace: &mut ConstraintSubmissionTrace,
         slot: Slot,
-        signed_constraints: &Vec<SignedConstraints>,
+        signed_constraints: SignedConstraints,
         request_id: &Uuid,
     ) -> Result<(), ConstraintsApiError> {
         // Save the constraints to the auctioneer
@@ -257,8 +262,7 @@ where
                 info!(
                     request_id = %request_id,
                     timestamp_after_auctioneer = Instant::now().elapsed().as_nanos(),
-                    auctioneer_latency_ns = trace.auctioneer_update.saturating_sub(trace.cache),
-                    num_constraints = signed_constraints.len(),
+                    auctioneer_latency_ns = trace.auctioneer_update.saturating_sub(trace.decode),
                     "Constraints saved to auctioneer",
                 );
                 Ok(())
@@ -285,7 +289,8 @@ pub async fn decode_constraints_submission(
 
     // Read the body
     let body = req.into_body();
-    let body_bytes = to_bytes(body, None).await?;
+    // TODO: Make sure length limit
+    let body_bytes = to_bytes(body, 1024 * 1024).await?;
     
     // Decode the body
     let constraints: Vec<SignedConstraints> = if is_ssz {
@@ -310,4 +315,11 @@ pub async fn decode_constraints_submission(
     );
 
     Ok(constraints)
+}
+
+fn get_nanos_timestamp() -> Result<u64, ConstraintsApiError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .map_err(|_| ConstraintsApiError::InternalError)
 }

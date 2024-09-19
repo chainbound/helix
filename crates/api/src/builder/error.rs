@@ -129,6 +129,9 @@ pub enum BuilderApiError {
 
     #[error("V2 submissions invalid if proposer requires regional filtering")]
     V2SubmissionsInvalidIfProposerRequiresRegionalFiltering,
+
+    #[error("no constraints found")]
+    NoConstraintsFound,
 }
 
 impl IntoResponse for BuilderApiError {
@@ -262,6 +265,9 @@ impl IntoResponse for BuilderApiError {
             },
             BuilderApiError::V2SubmissionsInvalidIfProposerRequiresRegionalFiltering => {
                 (StatusCode::BAD_REQUEST, "V2 submissions invalid if proposer requires regional filtering").into_response()
+            }
+            BuilderApiError::NoConstraintsFound => {
+                (StatusCode::BAD_REQUEST, "no constraints found").into_response()
             }
         }
     }
