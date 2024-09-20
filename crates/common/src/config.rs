@@ -152,6 +152,7 @@ impl RouterConfig {
             &[
                 Route::GetValidators,
                 Route::SubmitBlock,
+                Route::SubmitBlockWithProofs,
                 Route::SubmitBlockOptimistic,
                 Route::SubmitHeader,
                 Route::GetTopBid,
@@ -160,7 +161,13 @@ impl RouterConfig {
 
         self.replace_condensed_with_real(
             Route::ProposerApi,
-            &[Route::Status, Route::RegisterValidators, Route::GetHeader, Route::GetPayload],
+            &[
+                Route::Status,
+                Route::RegisterValidators,
+                Route::GetHeader,
+                Route::GetHeaderWithProofs,
+                Route::GetPayload
+            ],
         );
 
         self.replace_condensed_with_real(
@@ -169,6 +176,8 @@ impl RouterConfig {
                 Route::ProposerPayloadDelivered,
                 Route::BuilderBidsReceived,
                 Route::ValidatorRegistration,
+                Route::BuilderConstraints,
+                Route::BuilderConstraintsStream,
             ],
         );
 
@@ -178,10 +187,6 @@ impl RouterConfig {
                 Route::SubmitBuilderConstraints,
                 Route::DelegateSubmissionRights,
                 Route::RevokeSubmissionRights,
-                Route::BuilderConstraints,
-                Route::BuilderConstraintsStream,
-                Route::SubmitBlockWithProofs,
-                Route::GetHeaderWithProofs,
             ],
         );
     }
@@ -275,30 +280,16 @@ impl Route {
             Route::Status => format!("{PATH_PROPOSER_API}{PATH_STATUS}"),
             Route::RegisterValidators => format!("{PATH_PROPOSER_API}{PATH_REGISTER_VALIDATORS}"),
             Route::GetHeader => format!("{PATH_PROPOSER_API}{PATH_GET_HEADER}"),
-            Route::GetHeaderWithProofs => {
-                format!("{PATH_PROPOSER_API}{PATH_GET_HEADER_WITH_PROOFS}")
-            }
+            Route::GetHeaderWithProofs => format!("{PATH_PROPOSER_API}{PATH_GET_HEADER_WITH_PROOFS}"),
             Route::GetPayload => format!("{PATH_PROPOSER_API}{PATH_GET_PAYLOAD}"),
-            Route::ProposerPayloadDelivered => {
-                format!("{PATH_DATA_API}{PATH_PROPOSER_PAYLOAD_DELIVERED}")
-            }
+            Route::ProposerPayloadDelivered => format!("{PATH_DATA_API}{PATH_PROPOSER_PAYLOAD_DELIVERED}"),
             Route::BuilderBidsReceived => format!("{PATH_DATA_API}{PATH_BUILDER_BIDS_RECEIVED}"),
             Route::ValidatorRegistration => format!("{PATH_DATA_API}{PATH_VALIDATOR_REGISTRATION}"),
-            Route::SubmitBuilderConstraints => {
-                format!("{PATH_CONSTRAINTS_API}{PATH_SUBMIT_BUILDER_CONSTRAINTS}")
-            }
-            Route::DelegateSubmissionRights => {
-                format!("{PATH_CONSTRAINTS_API}{PATH_DELEGATE_SUBMISSION_RIGHTS}")
-            }
-            Route::RevokeSubmissionRights => {
-                format!("{PATH_CONSTRAINTS_API}{PATH_REVOKE_SUBMISSION_RIGHTS}")
-            }
-            Route::BuilderConstraints => {
-                format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS}")
-            }
-            Route::BuilderConstraintsStream => {
-                format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS_STREAM}")
-            }
+            Route::SubmitBuilderConstraints => format!("{PATH_CONSTRAINTS_API}{PATH_SUBMIT_BUILDER_CONSTRAINTS}"),
+            Route::DelegateSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_DELEGATE_SUBMISSION_RIGHTS}"),
+            Route::RevokeSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_REVOKE_SUBMISSION_RIGHTS}"),
+            Route::BuilderConstraints => format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS}"),
+            Route::BuilderConstraintsStream => format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS_STREAM}"),
             Route::All => panic!("All is not a real route"),
             Route::BuilderApi => panic!("BuilderApi is not a real route"),
             Route::ProposerApi => panic!("ProposerApi is not a real route"),

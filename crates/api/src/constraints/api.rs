@@ -13,6 +13,12 @@ use tokio::time::Instant;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConstraintsApiError {
+    #[error("hyper error: {0}")]
+    HyperError(#[from] hyper::Error),
+    #[error("axum error: {0}")]
+    AxumError(#[from] axum::Error),
+    #[error("serde decode error: {0}")]
+    SerdeDecodeError(#[from] serde_json::Error),
     #[error("Invalid constraints")]
     InvalidConstraints,
     #[error("Invalid delegation ")]
@@ -25,12 +31,8 @@ pub enum ConstraintsApiError {
     NilConstraints,
     #[error("datastore error: {0}")]
     AuctioneerError(#[from] AuctioneerError),
-    #[error("axum error: {0}")]
-    AxumError(#[from] axum::Error),
     #[error("internal error")]
     InternalError,
-    #[error("serde decode error: {0}")]
-    SerdeDecodeError(#[from] serde_json::Error),
     #[error("failed to get constraints proof data")]
     ConstraintsProofDataError(#[from] ProofError),
 }
