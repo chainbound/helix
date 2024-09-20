@@ -2,6 +2,7 @@ use std::{
     collections::HashMap, io::Read, ops::Deref, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}
 };
 
+use alloy_primitives::B256;
 use axum::{
     extract::ws::{WebSocket, WebSocketUpgrade, Message},
     body::{to_bytes, Body},
@@ -18,7 +19,6 @@ use ethereum_consensus::{
 use flate2::read::GzDecoder;
 use futures::StreamExt;
 use hyper::HeaderMap;
-use reth_primitives::revm_primitives::FixedBytes;
 use tokio::{
     sync::{
         mpsc::{self, error::SendError, Receiver, Sender},
@@ -528,8 +528,10 @@ where
             return Err(BuilderApiError::NoConstraintsFound);
         };
 
-        // TODO: Verify inclusion proofs
-        // api.verify_inclusion_proof(&payload);
+        // Verify inclusion proofs
+        if let Err(err) = api.verify_inclusion_proof(&payload, &constraints).await {
+            return Err(err)
+        };
 
         // If cancellations are enabled, then abort now if there is a later submission
         if is_cancellations_enabled {
@@ -1358,15 +1360,22 @@ where
         Ok((payload, was_simulated_optimistically))
     }
 
+    /// Verifies the inclusion proofs of the constraints.
     async fn verify_inclusion_proof(
         &self,
         payload: &SignedBidSubmission,
         constraints: &[ConstraintsWithProofData],
     ) -> Result<(), BuilderApiError> {
+        // TODO: Clean this
+        let mut payload_clone = payload.clone();
+        let root = payload_clone.hash_tree_root().unwrap();
+        let root = B256::from_slice(&root.to_vec());
+    
         let proofs = payload.proofs().expect("proofs not found");
-        // TODO: Value of root
-        verify_multiproofs(constraints, proofs, FixedBytes::default());
-        unimplemented!()
+        match verify_multiproofs(constraints, proofs, root) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(BuilderApiError::InclusionProofVerificationFailed),
+        }
     }
 
     /// Check for block hashes that have already been processed.

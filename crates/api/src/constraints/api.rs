@@ -2,7 +2,7 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation}, chain_info::ChainInfo, proofs::SignedConstraints, ConstraintSubmissionTrace};
+use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation}, chain_info::ChainInfo, proofs::{ConstraintsWithProofData, ProofError, SignedConstraints}, ConstraintSubmissionTrace};
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
 use helix_utils::signing::verify_signed_builder_message as verify_signature;
@@ -31,9 +31,11 @@ pub enum ConstraintsApiError {
     InternalError,
     #[error("serde decode error: {0}")]
     SerdeDecodeError(#[from] serde_json::Error),
+    #[error("failed to get constraints proof data")]
+    ConstraintsProofDataError(#[from] ProofError),
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone)]
 pub struct ConstraintsApi <A, DB>
 where 
     A: Auctioneer + 'static,
@@ -82,12 +84,16 @@ where
         }
 
         // Add all the constraints to the cache
-        for signed_constraints in constraints {
+        for mut signed_constraints in constraints {
+            // TODO: Clean this
+            let pubkey = signed_constraints.message.pubkey.clone();
+            let message = &mut signed_constraints.message;
+            
             // Verify the signature.
             if let Err(e) = verify_signature(
-                &mut signed_constraints.message,
+                message,
                 &signed_constraints.signature,
-                &signed_constraints.message.pubkey,
+                &pubkey,
                 &api.chain_info.context
             ) {
                 return Err(ConstraintsApiError::InvalidSignature);
@@ -139,17 +145,21 @@ where
         let body_bytes = to_bytes(body, 1024 * 1024).await?;
         
         // Decode the incoming request body into a `SignedDelegation`.
-        let signed_delegation: SignedDelegation = match serde_json::from_slice(&body_bytes) {
+        let mut signed_delegation: SignedDelegation = match serde_json::from_slice(&body_bytes) {
             Ok(delegation) => delegation,
             Err(_) => return Err(ConstraintsApiError::InvalidDelegation),
         };
         trace.decode = get_nanos_timestamp()?;
 
+        // TODO: Clean this
+        let pubkey = signed_delegation.message.validator_pubkey.clone();
+        let message = &mut signed_delegation.message;
+        
         // Verify the delegation signature
         if let Err(e) = verify_signature(
-            &mut signed_delegation.message,
+            message,
             &signed_delegation.signature,
-            &signed_delegation.message.validator_pubkey,
+            &pubkey,
             &api.chain_info.context
         ) {
             return Err(ConstraintsApiError::InvalidSignature);
@@ -204,17 +214,19 @@ where
         let body_bytes = to_bytes(body, 1024 * 1024).await?;
         
         // Decode the incoming request body into a `SignedDelegation`.
-        let signed_revocation: SignedRevocation = match serde_json::from_slice(&body_bytes) {
+        let mut signed_revocation: SignedRevocation = match serde_json::from_slice(&body_bytes) {
             Ok(revocation ) => revocation,
             Err(_) => return Err(ConstraintsApiError::InvalidRevocation),
         };
         trace.decode = get_nanos_timestamp()?;
 
+        let pubkey = signed_revocation.message.validator_pubkey.clone();
+        let message = &mut signed_revocation.message;
         // Verify the revocation signature
         if let Err(e) = verify_signature(
-            &mut signed_revocation.message,
+            message,
             &signed_revocation.signature,
-            &signed_revocation.message.validator_pubkey,
+            &pubkey,
             &api.chain_info.context
         ) {
             return Err(ConstraintsApiError::InvalidSignature);
@@ -257,9 +269,9 @@ where
         signed_constraints: SignedConstraints,
         request_id: &Uuid,
     ) -> Result<(), ConstraintsApiError> {
-        // Save the constraints to the auctioneer
+        let message_with_data = ConstraintsWithProofData::try_from(signed_constraints.message)?;
         match self.auctioneer
-            .save_constraints(slot, signed_constraints)
+            .save_constraints(slot, message_with_data)
             .await
         {
             Ok(()) => {

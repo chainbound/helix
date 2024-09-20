@@ -132,6 +132,9 @@ pub enum BuilderApiError {
 
     #[error("no constraints found")]
     NoConstraintsFound,
+
+    #[error("inclusion proof verification failed")]
+    InclusionProofVerificationFailed
 }
 
 impl IntoResponse for BuilderApiError {
@@ -268,6 +271,9 @@ impl IntoResponse for BuilderApiError {
             }
             BuilderApiError::NoConstraintsFound => {
                 (StatusCode::BAD_REQUEST, "no constraints found").into_response()
+            }
+            BuilderApiError::InclusionProofVerificationFailed => {
+                (StatusCode::BAD_REQUEST, "inclusion proof verification failed").into_response()
             }
         }
     }

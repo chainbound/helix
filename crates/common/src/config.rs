@@ -268,9 +268,8 @@ impl Route {
         match self {
             Route::GetValidators => format!("{PATH_BUILDER_API}{PATH_GET_VALIDATORS}"),
             Route::SubmitBlock => format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK}"),
-            Route::SubmitBlockOptimistic => {
-                format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK_OPTIMISTIC_V2}")
-            }
+            Route::SubmitBlockWithProofs => format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_BLOCKS_WITH_PROOFS}"),
+            Route::SubmitBlockOptimistic => format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK_OPTIMISTIC_V2}"),
             Route::SubmitHeader => format!("{PATH_BUILDER_API}{PATH_SUBMIT_HEADER}"),
             Route::GetTopBid => format!("{PATH_BUILDER_API}{PATH_GET_TOP_BID}"),
             Route::Status => format!("{PATH_PROPOSER_API}{PATH_STATUS}"),
@@ -299,9 +298,6 @@ impl Route {
             }
             Route::BuilderConstraintsStream => {
                 format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS_STREAM}")
-            }
-            Route::SubmitBlockWithProofs => {
-                format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_BLOCKS_WITH_PROOFS}")
             }
             Route::All => panic!("All is not a real route"),
             Route::BuilderApi => panic!("BuilderApi is not a real route"),
