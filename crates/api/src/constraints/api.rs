@@ -12,32 +12,7 @@ use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use tokio::time::Instant;
 
-#[derive(Debug, thiserror::Error)]
-pub enum ConstraintsApiError {
-    #[error("hyper error: {0}")]
-    HyperError(#[from] hyper::Error),
-    #[error("axum error: {0}")]
-    AxumError(#[from] axum::Error),
-    #[error("serde decode error: {0}")]
-    SerdeDecodeError(#[from] serde_json::Error),
-    #[error("Invalid constraints")]
-    InvalidConstraints,
-    #[error("Invalid delegation ")]
-    InvalidDelegation,
-    #[error("Invalid revocation")]
-    InvalidRevocation,
-    #[error("Invalid signature")]
-    InvalidSignature,
-    #[error("Constraints field is empty")]
-    NilConstraints,
-    #[error("datastore error: {0}")]
-    AuctioneerError(#[from] AuctioneerError),
-    #[error("internal error")]
-    InternalError,
-    #[error("failed to get constraints proof data")]
-    ConstraintsProofDataError(#[from] ProofError),
-}
-
+use crate::constraints::error::ConstraintsApiError;
 #[derive(Clone)]
 pub struct ConstraintsApi <A, DB>
 where 
@@ -128,7 +103,14 @@ where
             // api.constraints_handle.send_constraints(message);
 
             // Finally add the constraints to the redis cache
-            api.save_constraints_to_auctioneer(&mut trace, message.slot, signed_constraints, &request_id);
+            if let Err(err) = api.save_constraints_to_auctioneer(
+                &mut trace,
+                message.slot,
+                signed_constraints,
+                &request_id
+            ).await {
+                error!(request_id = %request_id, error = %err, "Failed to save constraints to auctioneer");
+            };
         }
 
         // Log some final info

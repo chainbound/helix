@@ -45,7 +45,7 @@ use helix_housekeeper::{ChainUpdate, PayloadAttributesUpdate, SlotUpdate};
 use helix_utils::{calculate_withdrawals_root, get_payload_attributes_key, has_reached_fork, try_decode_into};
 
 use crate::{builder::{
-    error::BuilderApiError, traits::BlockSimulator, BlockSimRequest, DbInfo, OptimisticVersion,
+    error::{self, BuilderApiError}, traits::BlockSimulator, BlockSimRequest, DbInfo, OptimisticVersion,
 }, gossiper::{
     traits::GossipClientTrait,
     types::{BroadcastHeaderParams, BroadcastPayloadParams, GossipedMessage},
@@ -569,13 +569,15 @@ where
         }
 
         // Save inclusion proofs to auctioneer.
-        api.save_inclusion_proof(
+        if let Err(err) = api.save_inclusion_proof(
             payload.slot(),
             payload.proposer_public_key(),
             payload.block_hash(),
             payload.proofs().expect("proofs not found"),
             &request_id
-        );
+        ).await {
+            error!(request_id = %request_id, error = %err, "failed to save inclusion proofs");
+        };
 
         // Log some final info
         trace.request_finish = get_nanos_timestamp()?;
