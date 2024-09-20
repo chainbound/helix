@@ -2517,7 +2517,6 @@ checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 name = "helix-api"
 version = "0.0.1"
 dependencies = [
- "alloy-primitives 0.7.4",
  "async-trait",
  "auto_impl",
  "axum 0.7.4",
@@ -2599,7 +2598,6 @@ dependencies = [
 name = "helix-common"
 version = "0.0.1"
 dependencies = [
- "alloy-primitives 0.7.4",
  "auto_impl",
  "axum 0.7.4",
  "clap",
