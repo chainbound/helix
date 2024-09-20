@@ -2,7 +2,6 @@ use std::{
     collections::HashMap, io::Read, ops::Deref, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}
 };
 
-use alloy_primitives::B256;
 use axum::{
     extract::ws::{WebSocket, WebSocketUpgrade, Message},
     body::{to_bytes, Body},
@@ -1370,7 +1369,7 @@ where
     ) -> Result<(), BuilderApiError> {
         let mut tx_clone = payload.transactions().clone();
         let root = tx_clone.hash_tree_root().expect("failed to hash tree root");
-        let root = B256::from_slice(&root.to_vec());
+        let root = root.to_vec().as_slice().try_into().expect("failed to convert to hash32");
     
         let proofs = payload.proofs().expect("proofs not found");
         let constraints: Vec<ConstraintsWithProofData> = constraints.iter().map(|c| ConstraintsWithProofData {

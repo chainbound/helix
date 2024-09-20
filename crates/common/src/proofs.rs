@@ -2,7 +2,7 @@ use ethereum_consensus::{
     bellatrix::presets::minimal::Transaction, deneb::minimal::MAX_TRANSACTIONS_PER_PAYLOAD,
     phase0::Bytes32, primitives::{BlsPublicKey, BlsSignature}, ssz::prelude::*
 };
-use alloy_primitives::{B256, keccak256, TxHash};
+use reth_primitives::{TxHash, keccak256, B256};
 use tree_hash::Hash256;
 
 // Import the new version of the `ssz-rs` crate for multiproof verification.
@@ -97,7 +97,7 @@ impl TryFrom<SignedConstraints> for SignedConstraintsWithProofData {
     }
 }
 
-/// Returns the length of the leaves that need to be proven (i.e. all transactions).
+/// Returns the length of the leaves that need to be proven (i.e.  transactions).
 fn total_leaves(constraints: &[ConstraintsWithProofData]) -> usize {
     constraints.iter().map(|c| c.proof_data.len()).sum()
 }
@@ -147,15 +147,17 @@ pub fn verify_multiproofs(
     }
 
     // Conversions to the correct types (and versions of the same type)
-    let merkle_proofs = proofs.merkle_hashes.to_vec().iter().map(|h| B256::from_slice(h.as_ref())).collect::<Vec<_>>();
-    let indeces = proofs.generalized_indexes.to_vec().iter().map(|h| *h as usize).collect::<Vec<_>>();
+    let leaves = leaves.into_iter().map(|h| h.as_slice().try_into().unwrap()).collect::<Vec<_>>();
+    let merkle_proofs = proofs.merkle_hashes.to_vec().iter().map(|h| h.as_slice().try_into().unwrap()).collect::<Vec<_>>();
+    let indexes = proofs.generalized_indexes.to_vec().iter().map(|h| *h as usize).collect::<Vec<_>>();
+    let root = root.as_slice().try_into().expect("Invalid root length");
 
     // Verify the Merkle multiproof against the root
     ssz::multiproofs::verify_merkle_multiproof(
-        &leaves,
-        &merkle_proofs,
-        &indeces,
-        root
+        leaves.as_slice(),
+        merkle_proofs.as_ref(),
+        indexes.as_slice(),
+        root,
     )
     .map_err(|_| ProofError::VerificationFailed)?;
 
