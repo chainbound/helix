@@ -2,7 +2,7 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation}, chain_info::ChainInfo, proofs::{ConstraintsWithProofData, ProofError, SignedConstraints}, ConstraintSubmissionTrace};
+use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsWithProofData, ProofError, SignedConstraints}, ConstraintSubmissionTrace};
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
 use helix_utils::signing::verify_signed_builder_message as verify_signature;
@@ -90,7 +90,7 @@ where
             let message = &mut signed_constraints.message;
             
             // Verify the signature.
-            if let Err(e) = verify_signature(
+            if let Err(_) = verify_signature(
                 message,
                 &signed_constraints.signature,
                 &pubkey,
@@ -310,7 +310,7 @@ pub async fn decode_constraints_submission(
     let body_bytes = to_bytes(body, 1024 * 1024).await?;
     
     // Decode the body
-    let constraints: Vec<SignedConstraints> = if is_ssz {
+    let constraints: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> = if is_ssz {
         match ssz::prelude::deserialize(&body_bytes){
             Ok(constraints) => constraints,
             Err(err) => {
@@ -331,7 +331,7 @@ pub async fn decode_constraints_submission(
         num_constraints = constraints.len(),
     );
 
-    Ok(constraints)
+    Ok(constraints.to_vec())
 }
 
 fn get_nanos_timestamp() -> Result<u64, ConstraintsApiError> {
