@@ -182,12 +182,14 @@ impl ApiService {
             proposer_gossip_receiver,
         ));
 
-        let data_api = Arc::new(DataApiProd::new(validator_preferences.clone(), db.clone()));
+        let (data_api, constraints_handle) = DataApiProd::new(validator_preferences.clone(), auctioneer.clone(), db.clone());
+        let data_api = Arc::new(data_api);
 
         let constraints_api = Arc::new(ConstraintsApiProd::new(
             auctioneer.clone(),
             db.clone(),
-            chain_info.clone()
+            chain_info.clone(),
+            constraints_handle
         ));
 
         let bids_cache: Arc<BidsCache> = Arc::new(

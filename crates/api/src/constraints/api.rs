@@ -2,7 +2,8 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsWithProofData, ProofError, SignedConstraints}, ConstraintSubmissionTrace};
+use futures::channel::mpsc;
+use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsMessage, ConstraintsWithProofData, ProofError, SignedConstraints}, ConstraintSubmissionTrace};
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
 use helix_utils::signing::verify_signed_builder_message as verify_signature;
@@ -46,6 +47,22 @@ where
     auctioneer: Arc<A>,
     db: Arc<DB>,
     chain_info: Arc<ChainInfo>,
+
+    constraints_handle: ConstraintsHandle,
+}
+
+// TODO: Move this to appropriate place
+#[derive(Clone)]
+pub struct ConstraintsHandle {
+    pub(crate) constraints_tx: mpsc::Sender<ConstraintsMessage>, 
+}
+
+impl ConstraintsHandle {
+    pub fn send_constraints(&self, constraints: ConstraintsMessage) {
+        if let Err(err) = self.constraints_tx.try_send(constraints) {
+            error!(?err, "Failed to send constraints to the constraints channel");
+        }
+    }
 }
 
 impl<A, DB> ConstraintsApi <A, DB>
@@ -57,8 +74,9 @@ where
         auctioneer: Arc<A>,
         db: Arc<DB>,
         chain_info: Arc<ChainInfo>,
+        constraints_handle: ConstraintsHandle ,
     ) -> Self {
-        Self { auctioneer, db, chain_info }
+        Self { auctioneer, db, chain_info, constraints_handle }
     }
 
     /// Handles the submission of batch of signed constraints.
@@ -105,6 +123,9 @@ where
             // return error if invalid
 
             let message = signed_constraints.message.clone();
+
+            // Send to the constraints channel
+            // api.constraints_handle.send_constraints(message);
 
             // Finally add the constraints to the redis cache
             api.save_constraints_to_auctioneer(&mut trace, message.slot, signed_constraints, &request_id);

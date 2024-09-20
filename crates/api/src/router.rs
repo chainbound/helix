@@ -44,7 +44,7 @@ pub type ProposerApiProd = ProposerApi<
     GrpcGossiperClientManager,
 >;
 
-pub type DataApiProd = DataApi<PostgresDatabaseService>;
+pub type DataApiProd = DataApi<RedisCache, PostgresDatabaseService>;
 
 pub type ConstraintsApiProd = ConstraintsApi<RedisCache, PostgresDatabaseService>;
 

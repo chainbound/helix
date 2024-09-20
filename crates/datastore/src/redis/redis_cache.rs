@@ -50,7 +50,7 @@ use crate::{
 
 use super::utils::{get_constraints_key, get_hash_from_hex, get_pending_block_builder_block_hash_key, get_pending_block_builder_key, get_pubkey_from_hex};
 
-const CONSTRAINTS_CACHE_EXPIRY_S: usize = 12;
+const CONSTRAINTS_CACHE_EXPIRY_S: usize = 12 * 32;
 const BID_CACHE_EXPIRY_S: usize = 45;
 const PENDING_BLOCK_EXPIRY_S: usize = 45;
 const HOUSEKEEPER_LOCK_EXPIRY_MS: usize = 45_000;

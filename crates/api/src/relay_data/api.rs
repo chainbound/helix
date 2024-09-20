@@ -5,6 +5,8 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use futures::channel::mpsc;
+use helix_datastore::Auctioneer;
 use moka::sync::Cache;
 use tracing::warn;
 
@@ -17,7 +19,7 @@ use helix_common::{
 };
 use helix_database::DatabaseService;
 
-use crate::relay_data::error::DataApiError;
+use crate::{constraints::{self, api::ConstraintsHandle}, relay_data::error::DataApiError};
 
 pub(crate) const PATH_DATA_API: &str = "/relay/v1/data";
 
@@ -29,19 +31,22 @@ pub(crate) type BidsCache = Cache<String, Vec<ReceivedBlocksResponse>>;
 pub(crate) type DeliveredPayloadsCache = Cache<String, Vec<DeliveredPayloadsResponse>>;
 
 #[derive(Clone)]
-pub struct DataApi<DB: DatabaseService> {
+pub struct DataApi<A:Auctioneer, DB: DatabaseService> {
     validator_preferences: Arc<ValidatorPreferences>,
+    auctioneer: Arc<A>,
     db: Arc<DB>,
+    constraints_rx: mpsc::Receiver<ConstraintsMessage>,
 }
 
-impl<DB: DatabaseService + 'static> DataApi<DB> {
-    pub fn new(validator_preferences: Arc<ValidatorPreferences>, db: Arc<DB>) -> Self {
-        Self { validator_preferences, db }
+impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
+    pub fn new(validator_preferences: Arc<ValidatorPreferences>, auctioneer:Arc<A>, db: Arc<DB>) -> (Self, ConstraintsHandle) {
+        let (constraints_tx, constraints_rx) = mpsc::channel(100);
+        (Self { validator_preferences, auctioneer, db, constraints_rx }, ConstraintsHandle {constraints_tx} )
     }
 
     /// Implements this API: <https://flashbots.github.io/relay-specs/#/Data/getDeliveredPayloads>
     pub async fn proposer_payload_delivered(
-        Extension(data_api): Extension<Arc<DataApi<DB>>>,
+        Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
         Extension(cache): Extension<Arc<DeliveredPayloadsCache>>,
         Query(params): Query<ProposerPayloadDeliveredParams>,
     ) -> Result<impl IntoResponse, DataApiError> {
@@ -79,7 +84,7 @@ impl<DB: DatabaseService + 'static> DataApi<DB> {
 
     /// Implements this API: <https://flashbots.github.io/relay-specs/#/Data/getReceivedBids>
     pub async fn builder_bids_received(
-        Extension(data_api): Extension<Arc<DataApi<DB>>>,
+        Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
         Extension(cache): Extension<Arc<BidsCache>>,
         Query(params): Query<BuilderBlocksReceivedParams>,
     ) -> Result<impl IntoResponse, DataApiError> {
@@ -119,7 +124,7 @@ impl<DB: DatabaseService + 'static> DataApi<DB> {
 
     /// Implements this API: <https://flashbots.github.io/relay-specs/#/Data/getValidatorRegistration>
     pub async fn validator_registration(
-        Extension(data_api): Extension<Arc<DataApi<DB>>>,
+        Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
         Query(params): Query<ValidatorRegistrationParams>,
     ) -> Result<impl IntoResponse, DataApiError> {
         match data_api.db.get_validator_registration(params.pubkey).await {
@@ -131,15 +136,19 @@ impl<DB: DatabaseService + 'static> DataApi<DB> {
         }
     }
 
-    pub async fn constraints() {
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints>
+    pub async fn constraints(
+        Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
+        Query(params): Query<usize>,
+    ) -> Result<impl IntoResponse, DataApiError> {
+        if params {
+            
+        }
         unimplemented!()
     }
 
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints-stream>
     pub async fn constraints_stream() {
         unimplemented!()
     }
-
-    // pub async fn blocks_with_proofs() {
-    //     unimplemented!()
-    // }
 }
