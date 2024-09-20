@@ -1368,7 +1368,7 @@ where
     ) -> Result<(), BuilderApiError> {
         // TODO: Clean this
         let mut payload_clone = payload.clone();
-        let root = payload_clone.hash_tree_root().unwrap();
+        let root = payload_clone.transactions().hash_tree_root().unwrap();
         let root = B256::from_slice(&root.to_vec());
     
         let proofs = payload.proofs().expect("proofs not found");
