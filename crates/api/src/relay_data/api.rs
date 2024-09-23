@@ -3,12 +3,19 @@ use std::{sync::Arc, time::Duration};
 use axum::{
     extract::{Extension, Query}, response::{sse::{Event, KeepAlive}, IntoResponse, Sse}, BoxError, Json
 };
-use futures::{FutureExt, Stream, StreamExt};
-use helix_datastore::Auctioneer;
-use moka::sync::Cache;
-use tracing::warn;
-use tokio::sync::{broadcast, RwLock};
+use futures::{Stream, StreamExt};
+use tokio::{
+    sync::{
+        mpsc::{self, error::SendError, Receiver, Sender},
+        {broadcast, RwLock},
+    },
+    time::{self, Instant},
+};
 use tokio_stream::wrappers::BroadcastStream;
+use helix_datastore::Auctioneer;
+use helix_housekeeper::{chain_event_updater, ChainEventUpdater, ChainUpdate, SlotUpdate};
+use moka::sync::Cache;
+use tracing::{warn, debug, error};
 
 use helix_common::{
     api::data_api::{
@@ -29,24 +36,44 @@ pub(crate) const PATH_VALIDATOR_REGISTRATION: &str = "/validator_registration";
 pub(crate) type BidsCache = Cache<String, Vec<ReceivedBlocksResponse>>;
 pub(crate) type DeliveredPayloadsCache = Cache<String, Vec<DeliveredPayloadsResponse>>;
 
+#[derive(Clone)]
 pub struct DataApi<A:Auctioneer, DB: DatabaseService> {
     validator_preferences: Arc<ValidatorPreferences>,
     auctioneer: Arc<A>,
     db: Arc<DB>,
 
-    constraints_rx: broadcast::Receiver<ConstraintsMessage>,
+    constraints_tx: broadcast::Sender<ConstraintsMessage>,
+    head_slot: Arc<RwLock<u64>>,
 }
 
 impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
-    pub fn new(validator_preferences: Arc<ValidatorPreferences>, auctioneer:Arc<A>, db: Arc<DB>) -> (Self, ConstraintsHandle) {
-        let (constraints_tx, constraints_rx ) = broadcast::channel(100); // Should we have buffer?
-        (Self { 
+    pub fn new(
+        validator_preferences: Arc<ValidatorPreferences>,
+        auctioneer:Arc<A>,
+        db: Arc<DB>,
+        slot_update_subscription: Sender<Sender<ChainUpdate>>,
+    ) -> (Self, ConstraintsHandle) {
+        let (constraints_tx, _ ) = broadcast::channel(100);
+
+        let api = Self {
             validator_preferences,
             auctioneer,
             db,
-            constraints_rx, 
-        },
-        ConstraintsHandle {constraints_tx} )
+            constraints_tx: constraints_tx.clone(),
+            head_slot: Arc::new(RwLock::new(0)),
+        };
+
+        let api_clone = api.clone();
+        tokio::spawn(async move {
+            if let Err(err) = api_clone.housekeep(slot_update_subscription).await {
+                error!(
+                    error = %err,
+                    "DataApi. housekeep task encountered an error",
+                );
+            }
+        });
+
+        (api, ConstraintsHandle {constraints_tx} )
     }
 
     /// Implements this API: <https://flashbots.github.io/relay-specs/#/Data/getDeliveredPayloads>
@@ -144,11 +171,14 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
     /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints>
     pub async fn constraints(
         Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
-        Query(params): Query<usize>,
+        Query(params): Query<Option<u64>>,
     ) -> Result<impl IntoResponse, DataApiError> {
-        // TODO: Return err if the slot is outside expiry bounds i.e. before an epoch
-        // For this we need a beacon state tracker (housekeep and submit block sub)
-        let slot = params as u64;
+        let head_slot = data_api.head_slot.read().await.clone();
+        let slot = params.unwrap_or(head_slot);
+
+        if slot > head_slot || slot < head_slot - 32 {
+            return Err(DataApiError::IncorrectSlot(slot));
+        }
         
         match data_api.auctioneer.get_constraints(slot).await {
             Ok(Some(constraints_with_proof_data)) => {
@@ -164,7 +194,7 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
             }
             Err(err) => {
                 warn!(error=%err, "Failed to get constraints");
-                Err(DataApiError::ConstraintsError(slot))
+                Err(DataApiError::AuctioneerError(err))
             }
         }
     }
@@ -173,7 +203,7 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
     pub async fn constraints_stream(
         Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
     ) -> Sse<impl Stream<Item = Result<Event, DataApiError>>> {
-        let constraints_rx = data_api.constraints_rx.resubscribe();
+        let constraints_rx = data_api.constraints_tx.subscribe();
         let stream = BroadcastStream::new(constraints_rx);
 
         let filtered = stream.map(|result| match result {
@@ -184,7 +214,7 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
                     .retry(Duration::from_millis(50))),
                 Err(err) => {
                     warn!(error = %err, "Failed to serialize constraint");
-                    Err(DataApiError::InternalServerError)
+                    Err(DataApiError::SerializeError(err))
                 }
             },
             Err(err) => {
@@ -194,5 +224,41 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
         });
 
         Sse::new(filtered).keep_alive(KeepAlive::default())
+    }
+}
+
+
+// STATE SYNC
+impl<A, DB> DataApi<A, DB>
+where
+    A: Auctioneer + 'static,
+    DB: DatabaseService + 'static,
+{
+    /// Subscribes to slot head updater.
+    /// Updates the current slot, next proposer duty and prepares the get_validators() response.
+    pub async fn housekeep(
+        &self,
+        slot_update_subscription: Sender<Sender<ChainUpdate>>,
+    ) -> Result<(), SendError<Sender<ChainUpdate>>> {
+        let (tx, mut rx) = mpsc::channel(20);
+        slot_update_subscription.send(tx).await?;
+
+        while let Some(slot_update) = rx.recv().await {
+            match slot_update {
+                ChainUpdate::SlotUpdate(slot_update) => {
+                    self.handle_new_slot(slot_update).await;
+                }
+                ChainUpdate::PayloadAttributesUpdate(payload_attributes) => (),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle a new slot update.
+    /// Updates the next proposer duty and prepares the get_validators() response.
+    async fn handle_new_slot(&self, slot_update: SlotUpdate) {
+        *self.head_slot.write().await = slot_update.slot;
+        debug!(slot_head = slot_update.slot, "updated head slot",);
     }
 }

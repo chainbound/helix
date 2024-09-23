@@ -176,13 +176,18 @@ impl ApiService {
             broadcasters,
             multi_beacon_client.clone(),
             chain_info.clone(),
-            slot_update_sender,
+            slot_update_sender.clone(),
             validator_preferences.clone(),
             config.target_get_payload_propagation_duration_ms,
             proposer_gossip_receiver,
         ));
 
-        let (data_api, constraints_handle) = DataApiProd::new(validator_preferences.clone(), auctioneer.clone(), db.clone());
+        let (data_api, constraints_handle) = DataApiProd::new(
+            validator_preferences.clone(),
+            auctioneer.clone(),
+            db.clone(),
+            slot_update_sender,
+        );
         let data_api = Arc::new(data_api);
 
         let constraints_api = Arc::new(ConstraintsApiProd::new(
