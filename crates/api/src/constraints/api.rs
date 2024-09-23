@@ -104,7 +104,7 @@ where
             let message = signed_constraints.message.clone();
 
             // Send to the constraints channel
-            // api.constraints_handle.send_constraints(message);
+            api.constraints_handle.send_constraints(message.clone());
 
             // Finally add the constraints to the redis cache
             if let Err(err) = api.save_constraints_to_auctioneer(

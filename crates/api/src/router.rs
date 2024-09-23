@@ -121,8 +121,6 @@ pub fn build_router(
             Route::ValidatorRegistration => {
                 router = router.route(&route.path(), get(DataApiProd::validator_registration));
             }
-            // TODO: Decide where to keep this route. I think it makes sense to store the constraints in the redis cache.
-            // As it is a temporary (hot) storage. `ConstraintsApiProd` can be a good place to keep this route.
             Route::BuilderConstraints => {
                 router = router.route(&route.path(), get(DataApiProd::constraints));
             }

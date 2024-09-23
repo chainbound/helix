@@ -1,21 +1,19 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
-    extract::{Extension, Query},
-    response::IntoResponse,
-    Json,
+    extract::{Extension, Query}, response::{sse::{Event, KeepAlive}, IntoResponse, Sse}, BoxError, Json
 };
-use futures::channel::mpsc;
+use futures::{channel::mpsc, Stream, StreamExt};
 use helix_datastore::Auctioneer;
 use moka::sync::Cache;
 use tracing::warn;
+use tokio::sync::RwLock;
 
 use helix_common::{
     api::data_api::{
         BuilderBlocksReceivedParams, DeliveredPayloadsResponse, ProposerPayloadDeliveredParams,
         ReceivedBlocksResponse, ValidatorRegistrationParams,
-    },
-    validator_preferences, ValidatorPreferences,
+    }, proofs::ConstraintsMessage, validator_preferences, ValidatorPreferences
 };
 use helix_database::DatabaseService;
 
@@ -35,13 +33,20 @@ pub struct DataApi<A:Auctioneer, DB: DatabaseService> {
     validator_preferences: Arc<ValidatorPreferences>,
     auctioneer: Arc<A>,
     db: Arc<DB>,
-    constraints_rx: mpsc::Receiver<ConstraintsMessage>,
+
+    constraints_rx: Arc<RwLock<mpsc::Receiver<ConstraintsMessage>>>,
 }
 
 impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
     pub fn new(validator_preferences: Arc<ValidatorPreferences>, auctioneer:Arc<A>, db: Arc<DB>) -> (Self, ConstraintsHandle) {
-        let (constraints_tx, constraints_rx) = mpsc::channel(100);
-        (Self { validator_preferences, auctioneer, db, constraints_rx }, ConstraintsHandle {constraints_tx} )
+        let (constraints_tx, constraints_rx) = mpsc::channel(100); // Should we have buffer?
+        (Self { 
+            validator_preferences,
+            auctioneer,
+            db,
+            constraints_rx: Arc::new(RwLock::new(constraints_rx)) 
+        },
+        ConstraintsHandle {constraints_tx} )
     }
 
     /// Implements this API: <https://flashbots.github.io/relay-specs/#/Data/getDeliveredPayloads>
@@ -141,14 +146,43 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
         Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
         Query(params): Query<usize>,
     ) -> Result<impl IntoResponse, DataApiError> {
-        if params {
-            
+        // TODO: Return err if the slot is outside expiry bounds i.e. before an epoch
+        // For this we need a beacon state tracker
+        let slot = params as u64;
+        
+        match data_api.auctioneer.get_constraints(slot).await {
+            Ok(Some(constraints_with_proof_data)) => {
+                let constraints = constraints_with_proof_data
+                    .into_iter()
+                    .map(|data| data.message)
+                    .collect::<Vec<ConstraintsMessage>>();
+        
+                Ok(Json(constraints))
+            }
+            Ok(None) => {
+                Ok(Json(vec![])) // Return an empty vector if no constraints are found
+            }
+            Err(err) => {
+                warn!(error=%err, "Failed to get constraints");
+                Err(DataApiError::ConstraintsError(slot))
+            }
         }
-        unimplemented!()
     }
 
     /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints-stream>
-    pub async fn constraints_stream() {
-        unimplemented!()
+    pub async fn constraints_stream(
+        Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
+    ) -> Sse<impl Stream<Item = Result<Event, DataApiError>>> {
+        let constraints_rx = data_api.constraints_rx.read().await;
+
+        let filtered = constraints_rx.map(|constraint| match serde_json::to_string(&constraint) {
+            Ok(json) => Ok(Event::default().data(json).event("constraint").retry(Duration::from_millis(50))),
+            Err(err) => {
+                warn!(error=%err, "Failed to serialize constraint");
+                Err(DataApiError::InternalServerError)
+            }
+        });
+
+        Sse::new(filtered).keep_alive(KeepAlive::default())
     }
 }

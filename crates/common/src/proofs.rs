@@ -45,14 +45,12 @@ pub struct BidWithProofs {
 
 pub type HashTreeRoot = tree_hash::Hash256;
 
-// NOTE: This type is redefined here to avoid circular dependencies.
 #[derive(Debug, Clone, Serializable, serde::Deserialize, serde::Serialize)]
 pub struct SignedConstraints {
     pub message: ConstraintsMessage,
     pub signature: BlsSignature,
 }
 
-// NOTE: This type is redefined here to avoid circular dependencies.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, Serializable, Merkleized)]
 pub struct ConstraintsMessage {
     pub pubkey: BlsPublicKey,
