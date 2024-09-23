@@ -93,6 +93,11 @@ where
                 return Err(ConstraintsApiError::Conflict(conflict));
             }
 
+            // Check if the maximum number of constraints per slot has been reached
+            if saved_constraints.is_some() && saved_constraints.unwrap().len() + 1 > MAX_CONSTRAINTS_PER_SLOT {
+                return Err(ConstraintsApiError::MaxConstraintsReached);
+            } 
+
             // Verify the signature.
             if let Err(_) = verify_signature(
                 message,

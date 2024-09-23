@@ -51,6 +51,9 @@ pub enum ConstraintsApiError {
 
     #[error(transparent)]
     Conflict(#[from] Conflict),
+
+    #[error("Max constraints per slot reached")]
+    MaxConstraintsReached
 }
 
 impl IntoResponse for ConstraintsApiError {
@@ -92,6 +95,9 @@ impl IntoResponse for ConstraintsApiError {
             ConstraintsApiError::Conflict(err) => {
                 (StatusCode::CONFLICT, format!("Conflict: {err}")).into_response()
             },
+            ConstraintsApiError::MaxConstraintsReached => {
+                (StatusCode::BAD_REQUEST, "Max constraints per slot reached").into_response()
+            }
         }
     }
 }
