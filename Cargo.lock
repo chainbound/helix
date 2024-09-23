@@ -2544,6 +2544,7 @@ dependencies = [
  "serial_test",
  "thiserror",
  "tokio",
+ "tokio-stream",
  "tokio-tungstenite 0.16.1",
  "tonic",
  "tonic-build",

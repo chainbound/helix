@@ -3,11 +3,12 @@ use std::{sync::Arc, time::Duration};
 use axum::{
     extract::{Extension, Query}, response::{sse::{Event, KeepAlive}, IntoResponse, Sse}, BoxError, Json
 };
-use futures::{channel::mpsc, Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
 use helix_datastore::Auctioneer;
 use moka::sync::Cache;
 use tracing::warn;
-use tokio::sync::RwLock;
+use tokio::sync::{broadcast, RwLock};
+use tokio_stream::wrappers::BroadcastStream;
 
 use helix_common::{
     api::data_api::{
@@ -28,23 +29,22 @@ pub(crate) const PATH_VALIDATOR_REGISTRATION: &str = "/validator_registration";
 pub(crate) type BidsCache = Cache<String, Vec<ReceivedBlocksResponse>>;
 pub(crate) type DeliveredPayloadsCache = Cache<String, Vec<DeliveredPayloadsResponse>>;
 
-#[derive(Clone)]
 pub struct DataApi<A:Auctioneer, DB: DatabaseService> {
     validator_preferences: Arc<ValidatorPreferences>,
     auctioneer: Arc<A>,
     db: Arc<DB>,
 
-    constraints_rx: Arc<RwLock<mpsc::Receiver<ConstraintsMessage>>>,
+    constraints_rx: broadcast::Receiver<ConstraintsMessage>,
 }
 
 impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
     pub fn new(validator_preferences: Arc<ValidatorPreferences>, auctioneer:Arc<A>, db: Arc<DB>) -> (Self, ConstraintsHandle) {
-        let (constraints_tx, constraints_rx) = mpsc::channel(100); // Should we have buffer?
+        let (constraints_tx, constraints_rx ) = broadcast::channel(100); // Should we have buffer?
         (Self { 
             validator_preferences,
             auctioneer,
             db,
-            constraints_rx: Arc::new(RwLock::new(constraints_rx)) 
+            constraints_rx, 
         },
         ConstraintsHandle {constraints_tx} )
     }
@@ -147,7 +147,7 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
         Query(params): Query<usize>,
     ) -> Result<impl IntoResponse, DataApiError> {
         // TODO: Return err if the slot is outside expiry bounds i.e. before an epoch
-        // For this we need a beacon state tracker
+        // For this we need a beacon state tracker (housekeep and submit block sub)
         let slot = params as u64;
         
         match data_api.auctioneer.get_constraints(slot).await {
@@ -173,12 +173,22 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
     pub async fn constraints_stream(
         Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
     ) -> Sse<impl Stream<Item = Result<Event, DataApiError>>> {
-        let constraints_rx = data_api.constraints_rx.read().await;
+        let constraints_rx = data_api.constraints_rx.resubscribe();
+        let stream = BroadcastStream::new(constraints_rx);
 
-        let filtered = constraints_rx.map(|constraint| match serde_json::to_string(&constraint) {
-            Ok(json) => Ok(Event::default().data(json).event("constraint").retry(Duration::from_millis(50))),
+        let filtered = stream.map(|result| match result {
+            Ok(constraint) => match serde_json::to_string(&constraint) {
+                Ok(json) => Ok(Event::default()
+                    .data(json)
+                    .event("constraint")
+                    .retry(Duration::from_millis(50))),
+                Err(err) => {
+                    warn!(error = %err, "Failed to serialize constraint");
+                    Err(DataApiError::InternalServerError)
+                }
+            },
             Err(err) => {
-                warn!(error=%err, "Failed to serialize constraint");
+                warn!(error = %err, "Error receiving constraint message");
                 Err(DataApiError::InternalServerError)
             }
         });

@@ -10,7 +10,7 @@ use helix_utils::signing::verify_signed_builder_message as verify_signature;
 use tracing::{info, warn, error};
 use uuid::Uuid;
 use std::{collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
-use tokio::time::Instant;
+use tokio::{sync::broadcast, time::Instant};
 
 use crate::constraints::error::ConstraintsApiError;
 
@@ -30,15 +30,14 @@ where
     constraints_handle: ConstraintsHandle,
 }
 
-// TODO: Move this to appropriate place
 #[derive(Clone)]
 pub struct ConstraintsHandle {
-    pub(crate) constraints_tx: mpsc::Sender<ConstraintsMessage>, 
+    pub(crate) constraints_tx: broadcast::Sender<ConstraintsMessage>, 
 }
 
 impl ConstraintsHandle {
     pub fn send_constraints(&self, constraints: ConstraintsMessage) {
-        if let Err(err) = self.constraints_tx.try_send(constraints) {
+        if let Err(err) = self.constraints_tx.send(constraints) {
             error!(?err, "Failed to send constraints to the constraints channel");
         }
     }
@@ -102,14 +101,15 @@ where
             // return error if invalid
 
             let message = signed_constraints.message.clone();
+            let slot = message.slot;
 
             // Send to the constraints channel
-            api.constraints_handle.send_constraints(message.clone());
+            api.constraints_handle.send_constraints(message);
 
             // Finally add the constraints to the redis cache
             if let Err(err) = api.save_constraints_to_auctioneer(
                 &mut trace,
-                message.slot,
+                slot,
                 signed_constraints,
                 &request_id
             ).await {
