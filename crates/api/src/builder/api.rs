@@ -1368,7 +1368,6 @@ where
         payload: &SignedBidSubmission,
         constraints: &[ConstraintsWithProofData],
     ) -> Result<(), BuilderApiError> {
-        // TODO: Clean this if possible
         let mut tx_clone = payload.transactions().clone();
         let root = tx_clone.hash_tree_root().expect("failed to hash tree root");
         let root = B256::from_slice(&root.to_vec());

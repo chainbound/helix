@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::{
-    extract::{Extension, Query}, response::{sse::{Event, KeepAlive}, IntoResponse, Sse}, BoxError, Json
+    extract::{Extension, Query}, response::{sse::{Event, KeepAlive}, IntoResponse, Sse}, Json
 };
 use futures::{Stream, StreamExt};
 use tokio::{
@@ -171,10 +171,10 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
     /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints>
     pub async fn constraints(
         Extension(data_api): Extension<Arc<DataApi<A, DB>>>,
-        Query(params): Query<Option<u64>>,
+        Query(params): Query<u64>,
     ) -> Result<impl IntoResponse, DataApiError> {
         let head_slot = data_api.head_slot.read().await.clone();
-        let slot = params.unwrap_or(head_slot);
+        let slot = params;
 
         if slot > head_slot || slot < head_slot - 32 {
             return Err(DataApiError::IncorrectSlot(slot));
