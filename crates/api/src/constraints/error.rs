@@ -4,9 +4,17 @@ use axum::{
 };
 use helix_common::proofs::ProofError;
 use helix_datastore::error::AuctioneerError;
+use thiserror::Error;
 
+#[derive(Debug, Error)]
+pub enum Conflict {
+    #[error("Multiple ToB constraints per slot")]
+    TopOfBlock,
+    #[error("Duplicate transaction in the same slot")]
+    DuplicateTransaction,
+}
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum ConstraintsApiError {
     #[error("hyper error: {0}")]
     HyperError(#[from] hyper::Error),
@@ -40,6 +48,9 @@ pub enum ConstraintsApiError {
 
     #[error("failed to get constraints proof data")]
     ConstraintsProofDataError(#[from] ProofError),
+
+    #[error(transparent)]
+    Conflict(#[from] Conflict),
 }
 
 impl IntoResponse for ConstraintsApiError {
@@ -77,6 +88,9 @@ impl IntoResponse for ConstraintsApiError {
             },
             ConstraintsApiError::ConstraintsProofDataError(err) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Constraints proof data error: {err}")).into_response()
+            },
+            ConstraintsApiError::Conflict(err) => {
+                (StatusCode::CONFLICT, format!("Conflict: {err}")).into_response()
             },
         }
     }

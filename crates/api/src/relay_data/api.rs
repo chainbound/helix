@@ -21,7 +21,7 @@ use helix_common::{
     api::data_api::{
         BuilderBlocksReceivedParams, DeliveredPayloadsResponse, ProposerPayloadDeliveredParams,
         ReceivedBlocksResponse, ValidatorRegistrationParams,
-    }, proofs::ConstraintsMessage, validator_preferences, ValidatorPreferences
+    }, proofs::{ConstraintsMessage, SignedConstraints}, validator_preferences, ValidatorPreferences
 };
 use helix_database::DatabaseService;
 
@@ -181,11 +181,11 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
         }
         
         match data_api.auctioneer.get_constraints(slot).await {
-            Ok(Some(constraints_with_proof_data)) => {
-                let constraints = constraints_with_proof_data
+            Ok(Some(cache)) => {
+                let constraints = cache
                     .into_iter()
-                    .map(|data| data.message)
-                    .collect::<Vec<ConstraintsMessage>>();
+                    .map(|data| data.signed_constraints)
+                    .collect::<Vec<SignedConstraints>>();
         
                 Ok(Json(constraints))
             }

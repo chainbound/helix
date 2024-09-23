@@ -37,7 +37,7 @@ use helix_common::{
             SignedHeaderSubmission, SignedHeaderSubmissionCapella, SignedHeaderSubmissionDeneb,
         },
         BidSubmission, BidTrace, SignedBidSubmission,
-    }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData, InclusionProofs}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
+    }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData, InclusionProofs, SignedConstraintsWithProofData}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
 };
 use helix_database::DatabaseService;
 use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
@@ -1366,14 +1366,19 @@ where
     async fn verify_inclusion_proof(
         &self,
         payload: &SignedBidSubmission,
-        constraints: &[ConstraintsWithProofData],
+        constraints: &[SignedConstraintsWithProofData],
     ) -> Result<(), BuilderApiError> {
         let mut tx_clone = payload.transactions().clone();
         let root = tx_clone.hash_tree_root().expect("failed to hash tree root");
         let root = B256::from_slice(&root.to_vec());
     
         let proofs = payload.proofs().expect("proofs not found");
-        match verify_multiproofs(constraints, proofs, root) {
+        let constraints: Vec<ConstraintsWithProofData> = constraints.iter().map(|c| ConstraintsWithProofData {
+            message: c.signed_constraints.message.clone(),
+            proof_data: c.proof_data.clone(),
+        }).collect();
+    
+        match verify_multiproofs(&constraints, proofs, root) {
             Ok(_) => Ok(()),
             Err(_) => Err(BuilderApiError::InclusionProofVerificationFailed),
         }

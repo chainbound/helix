@@ -8,7 +8,7 @@ use ethereum_consensus::{
 };
 use futures_util::TryStreamExt;
 use helix_common::{
-    api::builder_api::TopBidUpdate, bid_submission::{v2::header_submission::SignedHeaderSubmission, BidSubmission}, pending_block::PendingBlock, proofs::{ConstraintsWithProofData, SignedConstraints}, versioned_payload::PayloadAndBlobs, ProposerInfo
+    api::builder_api::TopBidUpdate, bid_submission::{v2::header_submission::SignedHeaderSubmission, BidSubmission}, pending_block::PendingBlock, proofs::SignedConstraintsWithProofData, versioned_payload::PayloadAndBlobs, ProposerInfo
 };
 use redis::{AsyncCommands, RedisResult, Script, Value};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -541,12 +541,12 @@ impl Auctioneer for RedisCache {
     async fn save_constraints(
         &self,
         slot: u64,
-        constraints: ConstraintsWithProofData,
+        constraints: SignedConstraintsWithProofData,
     ) -> Result<(), AuctioneerError> {
         let key = get_constraints_key(slot);
     
         // Attempt to get the existing constraints from the cache.
-        let prev_constraints: Option<Vec<ConstraintsWithProofData>> = self
+        let prev_constraints: Option<Vec<SignedConstraintsWithProofData>> = self
             .get(&key)
             .await
             .map_err(AuctioneerError::RedisError)?;
@@ -569,7 +569,7 @@ impl Auctioneer for RedisCache {
     async fn get_constraints(
         &self,
         slot: u64,
-    ) -> Result<Option<Vec<ConstraintsWithProofData>>, AuctioneerError> {
+    ) -> Result<Option<Vec<SignedConstraintsWithProofData>>, AuctioneerError> {
         let key = get_constraints_key(slot);
         self.get(&key).await.map_err(AuctioneerError::RedisError)
     }

@@ -5,7 +5,7 @@ use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 use helix_common::{
     api::builder_api::TopBidUpdate, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::{ConstraintsWithProofData, InclusionProofs, SignedConstraints}, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
+    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::{SignedConstraintsWithProofData, InclusionProofs}, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
 };
 use helix_database::BuilderInfoDocument;
 
@@ -18,12 +18,12 @@ pub trait Auctioneer: Send + Sync + Clone {
     async fn save_constraints(
         &self,
         slot: u64,
-        constraints: ConstraintsWithProofData,
+        constraints: SignedConstraintsWithProofData,
     ) -> Result<(), AuctioneerError>;
     async fn get_constraints(
         &self,
         slot: u64,
-    ) -> Result<Option<Vec<ConstraintsWithProofData>>, AuctioneerError>;
+    ) -> Result<Option<Vec<SignedConstraintsWithProofData>>, AuctioneerError>;
     
     async fn save_inclusion_proof(
         &self,

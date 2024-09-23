@@ -67,11 +67,18 @@ pub struct ConstraintsWithProofData {
     pub proof_data: Vec<(TxHash, HashTreeRoot)>,
 }
 
-impl TryFrom<ConstraintsMessage> for ConstraintsWithProofData {
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct SignedConstraintsWithProofData {
+    pub signed_constraints: SignedConstraints,
+    pub proof_data: Vec<(TxHash, HashTreeRoot)>,
+}
+
+impl TryFrom<SignedConstraints> for SignedConstraintsWithProofData {
     type Error = ProofError;
 
-    fn try_from(value: ConstraintsMessage) -> Result<Self, ProofError> {
+    fn try_from(value: SignedConstraints) -> Result<Self, ProofError> {
         let transactions = value
+            .message
             .transactions
             .iter()
             .map(|tx| {
@@ -86,7 +93,7 @@ impl TryFrom<ConstraintsMessage> for ConstraintsWithProofData {
             })
             .collect::<Result<Vec<_>, ProofError>>()?;
 
-        Ok(Self { message: value, proof_data: transactions })
+        Ok(Self { signed_constraints: value, proof_data: transactions })
     }
 }
 

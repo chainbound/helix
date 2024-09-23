@@ -2,7 +2,7 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsMessage, ConstraintsWithProofData, ProofError, SignedConstraints}, ConstraintSubmissionTrace};
+use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsMessage, ConstraintsWithProofData, ProofError, SignedConstraints, SignedConstraintsWithProofData}, ConstraintSubmissionTrace};
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
 use helix_utils::signing::verify_signed_builder_message as verify_signature;
@@ -12,6 +12,8 @@ use std::{sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use tokio::{sync::broadcast, time::Instant};
 
 use crate::constraints::error::ConstraintsApiError;
+
+use super::error::Conflict;
 
 // This is the maximum length (randomly chosen) of a request body in bytes.
 pub(crate) const MAX_REQUEST_LENGTH: usize = 1024 * 1024 * 5;
@@ -82,10 +84,15 @@ where
 
         // Add all the constraints to the cache
         for mut signed_constraints in constraints {
-            // TODO: Clean this
             let pubkey = signed_constraints.message.pubkey.clone();
             let message = &mut signed_constraints.message;
             
+            // Check for conflicts in the constraints
+            let saved_constraints = api.auctioneer.get_constraints(message.slot).await?;
+            if let Some(conflict) = conflicts_with(saved_constraints, message) {
+                return Err(ConstraintsApiError::Conflict(conflict));
+            }
+
             // Verify the signature.
             if let Err(_) = verify_signature(
                 message,
@@ -158,7 +165,6 @@ where
         };
         trace.decode = get_nanos_timestamp()?;
 
-        // TODO: Clean this
         let pubkey = signed_delegation.message.validator_pubkey.clone();
         let message = &mut signed_delegation.message;
         
@@ -275,7 +281,7 @@ where
         signed_constraints: SignedConstraints,
         request_id: &Uuid,
     ) -> Result<(), ConstraintsApiError> {
-        let message_with_data = ConstraintsWithProofData::try_from(signed_constraints.message)?;
+        let message_with_data = SignedConstraintsWithProofData::try_from(signed_constraints)?;
         match self.auctioneer
             .save_constraints(slot, message_with_data)
             .await
@@ -296,6 +302,36 @@ where
             }
         }
     }
+}
+
+/// Checks if the constraints for the given slot conflict with the existing constraints.
+/// Returns a [Conflict] in case of a conflict, None otherwise.
+///
+/// # Possible conflicts
+/// - Multiple ToB constraints per slot
+/// - Duplicates of the same transaction per slot
+pub fn conflicts_with(
+    saved_constraints: Option<Vec<SignedConstraintsWithProofData>>, 
+    constraints: &ConstraintsMessage
+) -> Option<Conflict> {
+    // Check if there are saved constraints to compare against
+    if let Some(saved_constraints) = saved_constraints {
+        for saved_constraint in saved_constraints {
+            // Only 1 ToB (Top of Block) constraint per slot
+            if constraints.top && saved_constraint.signed_constraints.message.top {
+                return Some(Conflict::TopOfBlock);
+            }
+
+            // Check if any of the transactions are the same
+            for tx in constraints.transactions.iter() {
+                if saved_constraint.signed_constraints.message.transactions.iter().any(|existing| tx == existing) {
+                    return Some(Conflict::DuplicateTransaction);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 pub async fn decode_constraints_submission(
