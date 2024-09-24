@@ -379,6 +379,32 @@ mod tests {
         })
     }
 
+    fn _get_signed_constraints_json() -> &'static str {
+        r#"[
+        {
+            "message": {
+            "pubkey": "0xa20322c78fb784ba5e0d9d67ccf71e96c7efa0ea49fda73d62e58f70aab2703b0edc3ea8547c655021858f98437ee790",
+            "slot": 987432,
+            "top": false,
+            "transactions": [ 
+                "0x02f876018204db8405f5e100850218711a00825208949d22816f6611cfcb0cde5076c5f4e4a269e79bef8904563918244f40000080c080a0ee840d80915c9b506537909a5a6cf1ca2c5b47140d6585adab6ec0faf75fdcb7a07692785c5cb43c7cf02b800f"
+            ]
+            },
+            "signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+        }, {
+            "message": {
+            "pubkey": "0xa20322c78fb784ba5e0d9d67ccf71e96c7efa0ea49fda73d62e58f70aab2703b0edc3ea8547c655021858f98437ee790",
+            "slot": 987433,
+            "top": false,
+            "transactions": [
+                "0x02f876018204dbd40c45bf2105dd18711a0082d208949da2816f6611bcab0cde5076c5f4e4a269e79bef8904563918244f40111180c080a0ee840d80915c9b506537909a5a6cf1ca2c5b47140d6585adab6ec0faf75fdcb7a07692785c5cb43c7cf02b800f"
+            ]
+            },
+            "signature": "0x1b68ac14b663c9fc5b50984123ec9534bbd9cceda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+        }
+        ]"#
+    }
+
     pub fn generate_request(
         cancellations_enabled: bool,
         gzip_encoding: bool,
@@ -593,27 +619,7 @@ mod tests {
         });
 
         // Prepare multiple signed constraints
-        let test_constraints = vec![
-            SignedConstraints {
-                message: ConstraintsMessage {
-                    pubkey: BlsPublicKey::default(),
-                    slot: 0,
-                    top: false,
-                    transactions: List::default(),
-                },
-                signature: BlsSignature::default(),
-            },
-            SignedConstraints {
-                message: ConstraintsMessage {
-                    pubkey: BlsPublicKey::default(),
-                    slot: 1,
-                    top: true,
-                    transactions: List::default(),
-                },
-                signature: BlsSignature::default(),
-            },
-            // Add more constraints as needed
-        ];
+        let test_constraints: Vec<SignedConstraints> = serde_json::from_str(_get_signed_constraints_json()).unwrap();
 
         // Shared vector to collect received constraints
         let received_constraints = Arc::new(Mutex::new(Vec::new()));
@@ -669,12 +675,10 @@ mod tests {
         }
 
         // Assert that the received constraints match the sent constraints
-        // assert_eq!(received_constraints[0], test_constraints[0]);
-        info!("Received constraints: {:?}", received_constraints);
-        info!("Sent constraints: {:?}", test_constraints);
-    
-        // Close the SSE client
-        // event_source.close();
+        assert_eq!(received_constraints.lock().await[0].signature, test_constraints[0].signature);
+        assert_eq!(received_constraints.lock().await[1].signature, test_constraints[1].signature);
+        debug!("Received constraints: {:?}", received_constraints);
+        debug!("Sent constraints: {:?}", test_constraints);
     
         // Shut down the server
         let _ = tx.send(());
