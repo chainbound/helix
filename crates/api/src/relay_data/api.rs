@@ -28,6 +28,7 @@ use helix_database::DatabaseService;
 use crate::{constraints::{self, api::ConstraintsHandle}, relay_data::error::DataApiError};
 
 pub(crate) const PATH_DATA_API: &str = "/relay/v1/data";
+pub(crate) const PATH_CONSTRAINTS_API: &str = "/constraints/v1";
 
 pub(crate) const PATH_PROPOSER_PAYLOAD_DELIVERED: &str = "/bidtraces/proposer_payload_delivered";
 pub(crate) const PATH_BUILDER_BIDS_RECEIVED: &str = "/bidtraces/builder_blocks_received";
@@ -42,7 +43,7 @@ pub struct DataApi<A:Auctioneer, DB: DatabaseService> {
     auctioneer: Arc<A>,
     db: Arc<DB>,
 
-    constraints_tx: broadcast::Sender<ConstraintsMessage>,
+    constraints_tx: broadcast::Sender<SignedConstraints>,
     head_slot: Arc<RwLock<u64>>,
 }
 
@@ -53,7 +54,7 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
         db: Arc<DB>,
         slot_update_subscription: Sender<Sender<ChainUpdate>>,
     ) -> (Self, ConstraintsHandle) {
-        let (constraints_tx, _ ) = broadcast::channel(100);
+        let (constraints_tx, _ ) = broadcast::channel(128);
 
         let api = Self {
             validator_preferences,
@@ -210,7 +211,7 @@ impl<A: Auctioneer + 'static, DB: DatabaseService + 'static> DataApi<A, DB> {
             Ok(constraint) => match serde_json::to_string(&constraint) {
                 Ok(json) => Ok(Event::default()
                     .data(json)
-                    .event("constraint")
+                    .event("signed_constraint")
                     .retry(Duration::from_millis(50))),
                 Err(err) => {
                     warn!(error = %err, "Failed to serialize constraint");

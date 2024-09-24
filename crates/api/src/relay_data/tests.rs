@@ -2,23 +2,29 @@
 mod data_api_tests {
     // *** IMPORTS ***
     use crate::{
-        relay_data::{
+        constraints::api::ConstraintsHandle, relay_data::{
             DataApi, PATH_BUILDER_BIDS_RECEIVED, PATH_DATA_API, PATH_PROPOSER_PAYLOAD_DELIVERED,
-            PATH_VALIDATOR_REGISTRATION,
-        },
-        test_utils::data_api_app,
+            PATH_VALIDATOR_REGISTRATION, PATH_CONSTRAINTS_API,
+        }, test_utils::data_api_app
     };
-    use ethereum_consensus::{builder::SignedValidatorRegistration, primitives::BlsPublicKey};
-    use helix_common::api::data_api::{
-        BuilderBlocksReceivedParams, DeliveredPayloadsResponse, ProposerPayloadDeliveredParams,
-        ReceivedBlocksResponse, ValidatorRegistrationParams,
+    use ethereum_consensus::{builder::SignedValidatorRegistration, primitives::{BlsPublicKey, BlsSignature}};
+    use futures::StreamExt;
+    use helix_common::{
+        api::data_api::{
+            BuilderBlocksReceivedParams, DeliveredPayloadsResponse, ProposerPayloadDeliveredParams,
+            ReceivedBlocksResponse, ValidatorRegistrationParams,
+        }, bellatrix::List, proofs::{ConstraintsMessage, ConstraintsWithProofData, SignedConstraints}
     };
     use helix_database::MockDatabaseService;
+    use helix_datastore::{Auctioneer, MockAuctioneer};
     use helix_utils::request_encoding::Encoding;
     use reqwest::{Client, Response, StatusCode};
+    use reqwest_eventsource::{EventSource, Event as ReqwestEvent};
     use serial_test::serial;
+    use tracing::info;
     use std::{sync::Arc, time::Duration};
-    use tokio::sync::oneshot;
+    use tokio::sync::{oneshot, RwLock};
+    use async_trait::async_trait;
 
     // +++ HELPER VARIABLES +++
     const ADDRESS: &str = "0.0.0.0";
@@ -57,14 +63,16 @@ mod data_api_tests {
     async fn start_api_server() -> (
         oneshot::Sender<()>,
         HttpServiceConfig,
-        Arc<DataApi<MockDatabaseService>>,
+        Arc<DataApi<MockAuctioneer, MockDatabaseService>>,
+        Arc<MockAuctioneer>,
         Arc<MockDatabaseService>,
+        ConstraintsHandle,
     ) {
         let (tx, rx) = oneshot::channel();
         let http_config = HttpServiceConfig::new(ADDRESS, PORT);
         let bind_address = http_config.bind_address();
 
-        let (router, api, database) = data_api_app();
+        let (router, api, auctioneer, database, constraints_handle) = data_api_app();
 
         // Run the app in a background task
         tokio::spawn(async move {
@@ -80,7 +88,7 @@ mod data_api_tests {
 
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        (tx, http_config, api, database)
+        (tx, http_config, api, auctioneer, database, constraints_handle)
     }
 
     fn get_test_proposer_payload_delivered_params() -> ProposerPayloadDeliveredParams {
@@ -115,7 +123,7 @@ mod data_api_tests {
     #[serial]
     async fn test_payload_delivered_slot_and_cursor() {
         // Start the server
-        let (tx, http_config, _api, _database) = start_api_server().await;
+        let (tx, http_config, _api, _auctioneer, _database, _handler) = start_api_server().await;
 
         // Prepare the request
         let req_url = format!(
@@ -148,7 +156,7 @@ mod data_api_tests {
     #[serial]
     async fn test_payload_delivered_ok() {
         // Start the server
-        let (tx, http_config, _api, _database) = start_api_server().await;
+        let (tx, http_config, _api, _auctioneer, _database, _handler) = start_api_server().await;
 
         // Prepare the request
         let req_url = format!(
@@ -183,7 +191,7 @@ mod data_api_tests {
     #[ignore]
     async fn test_builder_bids_missing_filter() {
         // Start the server
-        let (tx, http_config, _api, _database) = start_api_server().await;
+        let (tx, http_config, _api, _auctioneer, _database, _handler) = start_api_server().await;
 
         // Prepare the request
         let req_url =
@@ -216,7 +224,7 @@ mod data_api_tests {
     #[ignore]
     async fn test_builder_bids_limit_reached() {
         // Start the server
-        let (tx, http_config, _api, _database) = start_api_server().await;
+        let (tx, http_config, _api, _auctioneer, _database, _handler) = start_api_server().await;
 
         // Prepare the request
         let req_url =
@@ -245,7 +253,7 @@ mod data_api_tests {
     #[serial]
     async fn test_builder_bids_ok() {
         // Start the server
-        let (tx, http_config, _api, _database) = start_api_server().await;
+        let (tx, http_config, _api, _auctioneer, _database, _handler) = start_api_server().await;
 
         // Prepare the request
         let req_url =
@@ -275,7 +283,7 @@ mod data_api_tests {
     #[serial]
     async fn test_validator_registration() {
         // Start the server
-        let (tx, http_config, _api, _database) = start_api_server().await;
+        let (tx, http_config, _api, _auctioneer, _database, _handler) = start_api_server().await;
 
         // Prepare the request
         let req_url =
@@ -297,6 +305,187 @@ mod data_api_tests {
         let text = resp.text().await.unwrap();
         let _response: SignedValidatorRegistration = serde_json::from_str(&text).unwrap();
 
+        // Shut down the server
+        let _ = tx.send(());
+    }
+
+    // New tests for constraints and constraints_stream
+
+    // #[tokio::test]
+    // #[serial]
+    // async fn test_constraints_ok() {
+    //     // Prepare test constraints
+    //     let test_constraint = ConstraintsMessage {
+    //         // Fill in fields as required for the test
+    //         // Example:
+    //         slot: HEAD_SLOT,
+    //         data: vec![1, 2, 3],
+    //     };
+
+    //     let constraints_with_proof_data = ConstraintsWithProofData {
+    //         message: test_constraint.clone(),
+    //         proof: vec![],
+    //     };
+
+    //     let mock_auctioneer = Arc::new(MockAuctioneer {
+    //         constraints: Arc::new(RwLock::new(Some(vec![constraints_with_proof_data]))),
+    //     });
+
+    //     // Start the server with the mock auctioneer
+    //     let (tx, http_config, api, _database) =
+    //         start_api_server_with_auctioneer(mock_auctioneer.clone()).await;
+
+    //     // Set the head_slot
+    //     *api.head_slot.write().await = HEAD_SLOT;
+
+    //     // Prepare the request
+    //     let req_url = format!(
+    //         "{}{}{}",
+    //         http_config.base_url(),
+    //         PATH_DATA_API,
+    //         "/constraints",
+    //     );
+
+    //     // Send JSON encoded request
+    //     let resp = reqwest::Client::new()
+    //         .get(req_url.as_str())
+    //         .header("accept", "application/json")
+    //         .send()
+    //         .await
+    //         .unwrap();
+
+    //     assert_eq!(resp.status(), StatusCode::OK);
+    //     // Deserialize the response into expected data type
+    //     let text = resp.text().await.unwrap();
+    //     let response: Vec<ConstraintsMessage> = serde_json::from_str(&text).unwrap();
+
+    //     // Assert that the response matches the expected test data
+    //     assert_eq!(response.len(), 1);
+    //     assert_eq!(response[0], test_constraint);
+
+    //     // Shut down the server
+    //     let _ = tx.send(());
+    // }
+
+    // #[tokio::test]
+    // #[serial]
+    // async fn test_constraints_invalid_slot() {
+    //     // Start the server
+    //     let (tx, http_config, api, _auctioneer, _database, _handler) = start_api_server().await;
+
+    //     // Set head_slot to 100
+    //     *api.head_slot.write().await = 100;
+
+    //     // Prepare the request with a slot beyond the head_slot
+    //     let invalid_slot = 200;
+    //     let req_url = format!(
+    //         "{}{}{}?slot={}",
+    //         http_config.base_url(),
+    //         PATH_DATA_API,
+    //         "/constraints",
+    //         invalid_slot,
+    //     );
+
+    //     // Send JSON encoded request
+    //     let resp = reqwest::Client::new()
+    //         .get(req_url.as_str())
+    //         .header("accept", "application/json")
+    //         .send()
+    //         .await
+    //         .unwrap();
+
+    //     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    //     // Check the error message
+    //     let error_message = resp.text().await.unwrap();
+    //     assert_eq!(error_message, format!("incorrect slot requested: {}", invalid_slot));
+
+    //     // Shut down the server
+    //     let _ = tx.send(());
+    // }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_constraints_stream_ok() {
+        // Start the server
+        let (tx, http_config, _api, _auctioneer, _database, handler) = start_api_server().await;
+    
+        // Prepare the request URL
+        let req_url = format!(
+            "{}{}{}",
+            http_config.base_url(),
+            PATH_CONSTRAINTS_API,
+            "/relay/v1/builder/constraints_stream",
+        );
+    
+        // Start the SSE client
+        let client = reqwest::Client::new();
+        let req = client
+            .get(&req_url)
+            .header("accept", "text/event-stream");
+    
+        let mut event_source = EventSource::new(req).unwrap();
+    
+        // Prepare multiple signed constraints
+        let test_constraints = vec![
+            SignedConstraints {
+                message: ConstraintsMessage {
+                    pubkey: BlsPublicKey::default(),
+                    slot: 0,
+                    top: false,
+                    transactions: List::default(),
+                },
+                signature: BlsSignature::default(),
+            },
+            SignedConstraints {
+                message: ConstraintsMessage {
+                    pubkey: BlsPublicKey::default(),
+                    slot: 1,
+                    top: true,
+                    transactions: List::default(),
+                },
+                signature: BlsSignature::default(),
+            },
+            // Add more constraints as needed
+        ];
+    
+        // Send the signed constraints
+        for constraint in &test_constraints {
+            handler.send_constraints(constraint.clone());
+        }
+    
+        // Collect received constraints
+        let mut received_constraints = Vec::new();
+    
+        // Read events from the SSE stream
+        for _ in 0..test_constraints.len() {
+            match event_source.next().await {
+                Some(Ok(ReqwestEvent::Message(message))) => {
+                    if message.event == "signed_constraint" {
+                        let data = &message.data;
+                        let received_constraint: SignedConstraints = serde_json::from_str(data).unwrap();
+                        received_constraints.push(received_constraint);
+                    }
+                }
+                Some(Ok(ReqwestEvent::Open)) => {
+                    // Connection established
+                }
+                Some(Err(err)) => {
+                    panic!("Error receiving SSE event: {:?}", err);
+                }
+                None => {
+                    panic!("SSE stream closed unexpectedly");
+                }
+            }
+        }
+    
+        // Assert that the received constraints match the sent constraints
+        // assert_eq!(received_constraints[0], test_constraints[0]);
+        info!("Received constraints: {:?}", received_constraints);
+        info!("Sent constraints: {:?}", test_constraints);
+    
+        // Close the SSE client
+        event_source.close();
+    
         // Shut down the server
         let _ = tx.send(());
     }

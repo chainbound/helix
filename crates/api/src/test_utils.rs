@@ -6,7 +6,7 @@ use axum::{
     routing::{get, post},
     BoxError, Extension, Router,
 };
-use helix_common::{chain_info::ChainInfo, Route};
+use helix_common::{chain_info::ChainInfo, proposer, Route};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use helix_beacon_client::{
@@ -24,17 +24,14 @@ use crate::{
     builder::{
         api::{BuilderApi, MAX_PAYLOAD_LENGTH},
         mock_simulator::MockSimulator,
-    },
-    gossiper::{mock_gossiper::MockGossiper, types::GossipedMessage},
-    proposer::{
+    }, constraints::api::ConstraintsHandle, gossiper::{mock_gossiper::MockGossiper, types::GossipedMessage}, proposer::{
         api::{ProposerApi, MAX_BLINDED_BLOCK_LENGTH, MAX_VAL_REGISTRATIONS_LENGTH},
         PATH_GET_HEADER, PATH_GET_PAYLOAD, PATH_PROPOSER_API, PATH_REGISTER_VALIDATORS,
         PATH_STATUS,
-    },
-    relay_data::{
+    }, relay_data::{
         DataApi, PATH_BUILDER_BIDS_RECEIVED, PATH_DATA_API, PATH_PROPOSER_PAYLOAD_DELIVERED,
         PATH_VALIDATOR_REGISTRATION,
-    },
+    }
 };
 
 pub fn app() -> Router {
@@ -49,14 +46,18 @@ pub fn app() -> Router {
             vec![Arc::new(BlockBroadcaster::Mock(MockBlockBroadcaster::default()))],
             Arc::new(MockMultiBeaconClient::default()),
             Arc::new(ChainInfo::for_mainnet()),
-            slot_update_sender,
+            slot_update_sender.clone(),
             Arc::new(ValidatorPreferences::default()),
             0,
             gossip_receiver,
         ));
 
     let data_api =
-        Arc::new(DataApi::<MockDatabaseService>::new(Arc::new(ValidatorPreferences::default()), Arc::new(MockDatabaseService::default())));
+        Arc::new(DataApi::<MockAuctioneer, MockDatabaseService>::new(
+            Arc::new(ValidatorPreferences::default()),
+            Arc::new(MockAuctioneer::default()),
+            Arc::new(MockDatabaseService::default()),
+            slot_update_sender));
 
     Router::new()
         .route(
@@ -101,15 +102,15 @@ pub fn app() -> Router {
         )
         .route(
             &format!("{PATH_DATA_API}{PATH_PROPOSER_PAYLOAD_DELIVERED}"),
-            get(DataApi::<MockDatabaseService>::proposer_payload_delivered),
+            get(DataApi::<MockAuctioneer, MockDatabaseService>::proposer_payload_delivered),
         )
         .route(
             &format!("{PATH_DATA_API}{PATH_BUILDER_BIDS_RECEIVED}"),
-            get(DataApi::<MockDatabaseService>::builder_bids_received),
+            get(DataApi::<MockAuctioneer, MockDatabaseService>::builder_bids_received),
         )
         .route(
             &format!("{PATH_DATA_API}{PATH_VALIDATOR_REGISTRATION}"),
-            get(DataApi::<MockDatabaseService>::validator_registration),
+            get(DataApi::<MockAuctioneer, MockDatabaseService>::validator_registration),
         )
         .layer(Extension(api_service))
         .layer(Extension(data_api))
@@ -213,24 +214,33 @@ pub fn proposer_api_app() -> (
     (router, proposer_api_service, slot_update_receiver, auctioneer)
 }
 
-pub fn data_api_app() -> (Router, Arc<DataApi<MockDatabaseService>>, Arc<MockDatabaseService>) {
+pub fn data_api_app() -> (Router, Arc<DataApi<MockAuctioneer, MockDatabaseService>>, Arc<MockAuctioneer>, Arc<MockDatabaseService>, ConstraintsHandle) {
+    let mock_auctioneer = Arc::new(MockAuctioneer::default());
     let mock_database = Arc::new(MockDatabaseService::default());
-    let proposer_api_service = Arc::new(DataApi::<MockDatabaseService>::new(Arc::new(ValidatorPreferences::default()), mock_database.clone()));
+    let (slot_update_sender, slot_update_receiver) = channel::<Sender<ChainUpdate>>(32);
+
+    let (proposer_api_service, handler) = DataApi::<MockAuctioneer, MockDatabaseService>::new(
+        Arc::new(ValidatorPreferences::default()),
+        mock_auctioneer.clone(),
+        mock_database.clone(),
+        slot_update_sender,
+    );
+    let proposer_api_service = Arc::new(proposer_api_service);
 
     let router = Router::new()
         .route(
             &format!("{PATH_DATA_API}{PATH_PROPOSER_PAYLOAD_DELIVERED}"),
-            get(DataApi::<MockDatabaseService>::proposer_payload_delivered),
+            get(DataApi::<MockAuctioneer, MockDatabaseService>::proposer_payload_delivered),
         )
         .route(
             &format!("{PATH_DATA_API}{PATH_BUILDER_BIDS_RECEIVED}"),
-            get(DataApi::<MockDatabaseService>::builder_bids_received),
+            get(DataApi::<MockAuctioneer, MockDatabaseService>::builder_bids_received),
         )
         .route(
             &format!("{PATH_DATA_API}{PATH_VALIDATOR_REGISTRATION}"),
-            get(DataApi::<MockDatabaseService>::validator_registration),
+            get(DataApi::<MockAuctioneer, MockDatabaseService>::validator_registration),
         )
         .layer(Extension(proposer_api_service.clone()));
 
-    (router, proposer_api_service, mock_database)
+    (router, proposer_api_service, mock_auctioneer, mock_database, handler)
 }

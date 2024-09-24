@@ -4,7 +4,7 @@ use axum::{
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
 use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsMessage, ConstraintsWithProofData, ProofError, SignedConstraints, SignedConstraintsWithProofData}, ConstraintSubmissionTrace};
 use helix_database::DatabaseService;
-use helix_datastore::{error::AuctioneerError, Auctioneer};
+use helix_datastore::Auctioneer;
 use helix_utils::signing::verify_signed_builder_message as verify_signature;
 use tracing::{info, warn, error};
 use uuid::Uuid;
@@ -33,11 +33,11 @@ where
 
 #[derive(Clone)]
 pub struct ConstraintsHandle {
-    pub(crate) constraints_tx: broadcast::Sender<ConstraintsMessage>, 
+    pub(crate) constraints_tx: broadcast::Sender<SignedConstraints>, 
 }
 
 impl ConstraintsHandle {
-    pub fn send_constraints(&self, constraints: ConstraintsMessage) {
+    pub fn send_constraints(&self, constraints: SignedConstraints) {
         if let Err(err) = self.constraints_tx.send(constraints) {
             error!(?err, "Failed to send constraints to the constraints channel");
         }
@@ -89,12 +89,12 @@ where
             
             // Check for conflicts in the constraints
             let saved_constraints = api.auctioneer.get_constraints(message.slot).await?;
-            if let Some(conflict) = conflicts_with(saved_constraints, message) {
+            if let Some(conflict) = conflicts_with(&saved_constraints, message) {
                 return Err(ConstraintsApiError::Conflict(conflict));
             }
 
             // Check if the maximum number of constraints per slot has been reached
-            if saved_constraints.is_some() && saved_constraints.unwrap().len() + 1 > MAX_CONSTRAINTS_PER_SLOT {
+            if saved_constraints.is_some_and(|c| c.len() +1 > MAX_CONSTRAINTS_PER_SLOT) {
                 return Err(ConstraintsApiError::MaxConstraintsReached);
             } 
 
@@ -112,15 +112,14 @@ where
             // return error if invalid
 
             let message = signed_constraints.message.clone();
-            let slot = message.slot;
 
             // Send to the constraints channel
-            api.constraints_handle.send_constraints(message);
+            api.constraints_handle.send_constraints(signed_constraints.clone());
 
             // Finally add the constraints to the redis cache
             if let Err(err) = api.save_constraints_to_auctioneer(
                 &mut trace,
-                slot,
+                message.slot,
                 signed_constraints,
                 &request_id
             ).await {
@@ -316,7 +315,7 @@ where
 /// - Multiple ToB constraints per slot
 /// - Duplicates of the same transaction per slot
 pub fn conflicts_with(
-    saved_constraints: Option<Vec<SignedConstraintsWithProofData>>, 
+    saved_constraints: &Option<Vec<SignedConstraintsWithProofData>>, 
     constraints: &ConstraintsMessage
 ) -> Option<Conflict> {
     // Check if there are saved constraints to compare against

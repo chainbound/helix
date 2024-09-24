@@ -22,6 +22,7 @@ tower = { workspace = true }
 futures = { workspace = true }
 hyper = { workspace = true }
 reqwest = { workspace = true }
+reqwest-eventsource = "0.5"
 tokio = { workspace = true }
 tokio-tungstenite = "0.16"
 tokio-stream = { workspace = true }

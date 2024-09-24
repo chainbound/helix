@@ -2537,6 +2537,7 @@ dependencies = [
  "rand",
  "redis",
  "reqwest",
+ "reqwest-eventsource",
  "reth-primitives 0.1.0-alpha.10",
  "serde",
  "serde_json",
