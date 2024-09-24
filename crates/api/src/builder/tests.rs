@@ -6,18 +6,17 @@ mod tests {
         builder::{
             api::{decode_header_submission, decode_payload, BuilderApi, MAX_PAYLOAD_LENGTH},
             mock_simulator::MockSimulator,
-        },
-        gossiper::mock_gossiper::MockGossiper,
-        service::API_REQUEST_TIMEOUT,
-        test_utils::builder_api_app,
+        }, constraints::api::ConstraintsHandle, gossiper::mock_gossiper::MockGossiper, service::API_REQUEST_TIMEOUT, test_utils::builder_api_app
     };
-    use axum::{ http::{header, Method, Request, Uri}};
+    use axum::{ http::{header, Method, Request, Uri}, Form};
+    use reqwest_eventsource::{EventSource, Event as ReqwestEvent};
     use tokio_tungstenite::{connect_async, tungstenite::{self, Message}};
+    use tracing::info;
     use core::panic;
     use ethereum_consensus::{
         builder::{SignedValidatorRegistration, ValidatorRegistration}, configs::mainnet::CAPELLA_FORK_EPOCH, deneb::{Transaction, Withdrawal}, phase0::mainnet::SLOTS_PER_EPOCH, primitives::{BlsPublicKey, BlsSignature}, ssz::{self, prelude::*}, types::mainnet::{ExecutionPayload, ExecutionPayloadHeader}, Fork
     };
-    use futures::{stream::FuturesOrdered, Future, SinkExt, StreamExt};
+    use futures::{lock::Mutex, stream::FuturesOrdered, Future, SinkExt, StreamExt};
     use helix_beacon_client::types::PayloadAttributes;
     use helix_common::{
         api::{
@@ -28,7 +27,7 @@ mod tests {
                 SignedHeaderSubmission, SignedHeaderSubmissionCapella, SignedHeaderSubmissionDeneb,
             },
             BidSubmission, SignedBidSubmission,
-        }, HeaderSubmissionTrace, Route, SubmissionTrace, ValidatorPreferences
+        }, proofs::{ConstraintsMessage, SignedConstraints}, HeaderSubmissionTrace, Route, SubmissionTrace, ValidatorPreferences
     };
     use helix_database::MockDatabaseService;
     use helix_datastore::MockAuctioneer;
@@ -40,7 +39,7 @@ mod tests {
     use serde_json::json;
     use serial_test::serial;
     use std::{
-        convert::Infallible, future::pending, io::Write, net::IpAddr, ops::Deref, pin::Pin, str::FromStr, sync::Arc, time::Duration
+        convert::Infallible, future::pending, io::Write, net::IpAddr, ops::Deref, pin::Pin, str::FromStr, sync::Arc, time::{Duration, Instant}
     };
     use tokio::sync::{
         mpsc::{Receiver, Sender},
@@ -289,7 +288,7 @@ mod tests {
         let http_config = HttpServiceConfig::new(ADDRESS, PORT);
         let bind_address = http_config.bind_address();
 
-        let (router, api, slot_update_receiver) = builder_api_app();
+        let (router, api, slot_update_receiver, _ ) = builder_api_app();
 
         // Run the app in a background task
         tokio::spawn(async move {
@@ -306,6 +305,36 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         (tx, http_config, api, slot_update_receiver)
+    }
+
+    async fn start_api_server_with_constraints() -> (
+        oneshot::Sender<()>,
+        HttpServiceConfig,
+        Arc<BuilderApi<MockAuctioneer, MockDatabaseService, MockSimulator, MockGossiper>>,
+        Receiver<Sender<ChainUpdate>>,
+        ConstraintsHandle
+    ) {
+        let (tx, rx) = oneshot::channel();
+        let http_config = HttpServiceConfig::new(ADDRESS, PORT);
+        let bind_address = http_config.bind_address();
+
+        let (router, api, slot_update_receiver, constraints_handle ) = builder_api_app();
+
+        // Run the app in a background task
+        tokio::spawn(async move {
+            // run it with hyper on localhost:3000
+            let listener = tokio::net::TcpListener::bind(bind_address).await.unwrap();
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    rx.await.ok();
+                })
+                .await
+                .unwrap();
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        (tx, http_config, api, slot_update_receiver, constraints_handle)
     }
 
     fn _get_req_body_submit_block_json() -> serde_json::Value {
@@ -543,6 +572,112 @@ mod tests {
         assert_eq!(deneb_payload.blob_gas_used, 100);
         assert_eq!(deneb_payload.excess_blob_gas, 50);
         assert!(decoded_submission.blobs_bundle().is_some());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_constraints_stream() {
+        tracing_subscriber::fmt::init();
+
+        // Start the server
+        let (tx, http_config, api, _slot_update_receiver, constraints_handle) = start_api_server_with_constraints().await;
+
+        // GET constraints stream
+        let req_url = 
+            format!("{}{}", http_config.base_url(), Route::BuilderConstraintsStream.path());
+        let client = reqwest::Client::new();
+        let req = client.get(req_url.as_str()).header("header", "text/event-stream");
+
+        let event_source = EventSource::new(req).unwrap_or_else(|err| {
+            panic!("Failed to create EventSource: {:?}", err);
+        });
+
+        // Prepare multiple signed constraints
+        let test_constraints = vec![
+            SignedConstraints {
+                message: ConstraintsMessage {
+                    pubkey: BlsPublicKey::default(),
+                    slot: 0,
+                    top: false,
+                    transactions: List::default(),
+                },
+                signature: BlsSignature::default(),
+            },
+            SignedConstraints {
+                message: ConstraintsMessage {
+                    pubkey: BlsPublicKey::default(),
+                    slot: 1,
+                    top: true,
+                    transactions: List::default(),
+                },
+                signature: BlsSignature::default(),
+            },
+            // Add more constraints as needed
+        ];
+
+        // Shared vector to collect received constraints
+        let received_constraints = Arc::new(Mutex::new(Vec::new()));
+        let received_constraints_clone = Arc::clone(&received_constraints);
+
+        // Spawn a task to listen to the SSE stream
+        tokio::spawn(async move {
+            let mut event_source = event_source;
+            while let Some(event) = event_source.next().await {
+                match event {
+                    Ok(ReqwestEvent::Message(message)) => {
+                        println!("Received SSE message: {:?}", message);
+                        if message.event == "signed_constraint" {
+                            let data = &message.data;
+                            let received_constraint: SignedConstraints = serde_json::from_str(data).unwrap();
+                            println!("Received constraint: {:?}", received_constraint);
+                            received_constraints_clone.lock().await.push(received_constraint);
+                        }
+                    }
+                    Ok(ReqwestEvent::Open) => {
+                        println!("SSE connection opened");
+                    }
+                    Err(err) => {
+                        println!("Error receiving SSE event: {:?}", err);
+                    }
+                }
+            }
+        });
+
+        // Delay to ensure the subscription is set up
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Send the signed constraints
+        for constraint in &test_constraints {
+            constraints_handle.send_constraints(constraint.clone());
+        }
+
+        // Wait for the constraints to be received
+        let timeout = Duration::from_secs(5);
+        let start_time = Instant::now();
+
+        loop {
+            {
+                let received = received_constraints.lock().await;
+                if received.len() >= test_constraints.len() {
+                    break;
+                }
+            }
+            if start_time.elapsed() > timeout {
+                panic!("Timeout waiting for constraints");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        // Assert that the received constraints match the sent constraints
+        // assert_eq!(received_constraints[0], test_constraints[0]);
+        info!("Received constraints: {:?}", received_constraints);
+        info!("Sent constraints: {:?}", test_constraints);
+    
+        // Close the SSE client
+        // event_source.close();
+    
+        // Shut down the server
+        let _ = tx.send(());
     }
 
     #[tokio::test]

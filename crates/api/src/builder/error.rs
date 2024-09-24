@@ -26,6 +26,9 @@ pub enum BuilderApiError {
     #[error("ssz deserialize error: {0}")]
     SszDeserializeError(#[from] ssz::prelude::DeserializeError),
 
+    #[error("ssz serialize error")]
+    SszSerializeError,
+
     #[error("failed to decode header-submission")]
     FailedToDecodeHeaderSubmission,
 
@@ -134,7 +137,13 @@ pub enum BuilderApiError {
     NoConstraintsFound,
 
     #[error("inclusion proof verification failed")]
-    InclusionProofVerificationFailed
+    InclusionProofVerificationFailed,
+
+    #[error("failed to get constraints for slot {0}")]
+    ConstraintsError(u64),
+
+    #[error("incorrect slot for constraints request {0}")]
+    IncorrectSlot(u64),
 }
 
 impl IntoResponse for BuilderApiError {
@@ -145,6 +154,9 @@ impl IntoResponse for BuilderApiError {
             },
             BuilderApiError::IOError(err) => {
                 (StatusCode::BAD_REQUEST, format!("IO error: {err}")).into_response()
+            },
+            BuilderApiError::SszSerializeError => {
+                (StatusCode::BAD_REQUEST, format!("SSZ serialize error")).into_response()
             },
             BuilderApiError::SszDeserializeError(err) => {
                 (StatusCode::BAD_REQUEST, format!("SSZ deserialize error: {err}")).into_response()
@@ -274,6 +286,12 @@ impl IntoResponse for BuilderApiError {
             }
             BuilderApiError::InclusionProofVerificationFailed => {
                 (StatusCode::BAD_REQUEST, "inclusion proof verification failed").into_response()
+            }
+            BuilderApiError::ConstraintsError(slot) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("failed to get constraints for slot {slot}")).into_response()
+            }
+            BuilderApiError::IncorrectSlot(slot) => {
+                (StatusCode::BAD_REQUEST, format!("incorrect slot for constraints request {slot}")).into_response()
             }
         }
     }

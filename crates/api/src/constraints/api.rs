@@ -38,8 +38,8 @@ pub struct ConstraintsHandle {
 
 impl ConstraintsHandle {
     pub fn send_constraints(&self, constraints: SignedConstraints) {
-        if let Err(err) = self.constraints_tx.send(constraints) {
-            error!(?err, "Failed to send constraints to the constraints channel");
+        if self.constraints_tx.send(constraints).is_err() {
+            error!("Failed to send constraints to the constraints channel");
         }
     }
 }

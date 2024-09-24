@@ -156,6 +156,8 @@ impl RouterConfig {
                 Route::SubmitBlockOptimistic,
                 Route::SubmitHeader,
                 Route::GetTopBid,
+                Route::BuilderConstraints,
+                Route::BuilderConstraintsStream,
             ],
         );
 
@@ -176,8 +178,6 @@ impl RouterConfig {
                 Route::ProposerPayloadDelivered,
                 Route::BuilderBidsReceived,
                 Route::ValidatorRegistration,
-                Route::BuilderConstraints,
-                Route::BuilderConstraintsStream,
             ],
         );
 
@@ -273,7 +273,7 @@ impl Route {
         match self {
             Route::GetValidators => format!("{PATH_BUILDER_API}{PATH_GET_VALIDATORS}"),
             Route::SubmitBlock => format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK}"),
-            Route::SubmitBlockWithProofs => format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_BLOCKS_WITH_PROOFS}"),
+            Route::SubmitBlockWithProofs => format!("{PATH_BUILDER_API}{PATH_BUILDER_BLOCKS_WITH_PROOFS}"),
             Route::SubmitBlockOptimistic => format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK_OPTIMISTIC_V2}"),
             Route::SubmitHeader => format!("{PATH_BUILDER_API}{PATH_SUBMIT_HEADER}"),
             Route::GetTopBid => format!("{PATH_BUILDER_API}{PATH_GET_TOP_BID}"),
@@ -288,8 +288,8 @@ impl Route {
             Route::SubmitBuilderConstraints => format!("{PATH_CONSTRAINTS_API}{PATH_SUBMIT_BUILDER_CONSTRAINTS}"),
             Route::DelegateSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_DELEGATE_SUBMISSION_RIGHTS}"),
             Route::RevokeSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_REVOKE_SUBMISSION_RIGHTS}"),
-            Route::BuilderConstraints => format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS}"),
-            Route::BuilderConstraintsStream => format!("{PATH_CONSTRAINTS_API}{PATH_BUILDER_CONSTRAINTS_STREAM}"),
+            Route::BuilderConstraints => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS}"),
+            Route::BuilderConstraintsStream => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS_STREAM}"),
             Route::All => panic!("All is not a real route"),
             Route::BuilderApi => panic!("BuilderApi is not a real route"),
             Route::ProposerApi => panic!("ProposerApi is not a real route"),

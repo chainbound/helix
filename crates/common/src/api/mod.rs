@@ -7,9 +7,12 @@ pub(crate) const PATH_BUILDER_API: &str = "/relay/v1/builder";
 
 pub(crate) const PATH_GET_VALIDATORS: &str = "/validators";
 pub(crate) const PATH_SUBMIT_BLOCK: &str = "/blocks";
+pub(crate) const PATH_BUILDER_BLOCKS_WITH_PROOFS: &str = "/blocks_with_proofs";
 pub(crate) const PATH_SUBMIT_BLOCK_OPTIMISTIC_V2: &str = "/blocks_optimistic_v2";
 pub(crate) const PATH_SUBMIT_HEADER: &str = "/headers";
 pub(crate) const PATH_GET_TOP_BID: &str = "/top_bid";
+pub(crate) const PATH_BUILDER_CONSTRAINTS: &str = "/constraints";
+pub(crate) const PATH_BUILDER_CONSTRAINTS_STREAM: &str = "/constraints_stream";
 
 pub(crate) const PATH_PROPOSER_API: &str = "/eth/v1/builder";
 
@@ -31,6 +34,3 @@ pub(crate) const PATH_CONSTRAINTS_API: &str = "/constraints/v1";
 pub(crate) const PATH_SUBMIT_BUILDER_CONSTRAINTS: &str = "/builder/constraints";
 pub(crate) const PATH_DELEGATE_SUBMISSION_RIGHTS: &str = "/builder/delegate";
 pub(crate) const PATH_REVOKE_SUBMISSION_RIGHTS: &str = "/builder/revoke";
-pub(crate) const PATH_BUILDER_CONSTRAINTS: &str = "/relay/builder/constraints";
-pub(crate) const PATH_BUILDER_CONSTRAINTS_STREAM: &str = "/relay/builder/constraints_stream";
-pub(crate) const PATH_BUILDER_BLOCKS_WITH_PROOFS: &str = "/relay/builder/blocks_with_proofs";

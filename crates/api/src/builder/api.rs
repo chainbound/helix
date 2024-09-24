@@ -3,11 +3,7 @@ use std::{
 };
 
 use axum::{
-    extract::ws::{WebSocket, WebSocketUpgrade, Message},
-    body::{to_bytes, Body},
-    http::{Request, StatusCode},
-    response::{IntoResponse, Response},
-    Extension,
+    body::{to_bytes, Body}, extract::{ws::{Message, WebSocket, WebSocketUpgrade}, Query}, http::{Request, StatusCode}, response::{sse::{Event, KeepAlive}, IntoResponse, Response, Sse}, Extension, Json
 };
 use ethereum_consensus::{
     configs::mainnet::{CAPELLA_FORK_EPOCH, SECONDS_PER_SLOT},
@@ -16,15 +12,15 @@ use ethereum_consensus::{
     ssz::{self, prelude::*},
 };
 use flate2::read::GzDecoder;
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use hyper::HeaderMap;
 use tokio::{
     sync::{
-        mpsc::{self, error::SendError, Receiver, Sender},
-        RwLock,
+        broadcast, mpsc::{self, error::SendError, Receiver, Sender}, RwLock
     },
     time::{self, Instant},
 };
+use tokio_stream::wrappers::BroadcastStream;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -36,7 +32,7 @@ use helix_common::{
             SignedHeaderSubmission, SignedHeaderSubmissionCapella, SignedHeaderSubmissionDeneb,
         },
         BidSubmission, BidTrace, SignedBidSubmission,
-    }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData, InclusionProofs, SignedConstraintsWithProofData}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
+    }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData, InclusionProofs, SignedConstraints, SignedConstraintsWithProofData}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
 };
 use helix_database::DatabaseService;
 use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
@@ -45,7 +41,7 @@ use helix_utils::{calculate_withdrawals_root, get_payload_attributes_key, has_re
 
 use crate::{builder::{
     error::{self, BuilderApiError}, traits::BlockSimulator, BlockSimRequest, DbInfo, OptimisticVersion,
-}, gossiper::{
+}, constraints::api::ConstraintsHandle, gossiper::{
     traits::GossipClientTrait,
     types::{BroadcastHeaderParams, BroadcastPayloadParams, GossipedMessage},
 }};
@@ -68,6 +64,7 @@ where
     signing_context: Arc<RelaySigningContext>,
 
     db_sender: Sender<DbInfo>,
+    constraints_tx: broadcast::Sender<SignedConstraints>,
 
     /// Information about the current head slot and next proposer duty
     curr_slot_info: Arc<RwLock<(u64, Option<BuilderGetValidatorsResponseEntry>)>>,
@@ -92,8 +89,9 @@ where
         signing_context: Arc<RelaySigningContext>,
         slot_update_subscription: Sender<Sender<ChainUpdate>>,
         gossip_receiver: Receiver<GossipedMessage>,
-    ) -> Self {
+    ) -> (Self, ConstraintsHandle) {
         let (db_sender, db_receiver) = mpsc::channel::<DbInfo>(10_000);
+        let (constraints_tx, _ ) = broadcast::channel(128);
 
         // Spin up db processing task
         let db_clone = db.clone();
@@ -110,6 +108,7 @@ where
             signing_context,
 
             db_sender,
+            constraints_tx: constraints_tx.clone(),
 
             curr_slot_info: Arc::new(RwLock::new((0, None))),
             proposer_duties_response: Arc::new(RwLock::new(None)),
@@ -134,7 +133,7 @@ where
             }
         });
 
-        api
+        (api, ConstraintsHandle {constraints_tx} )
     }
 
     /// Implements this API: <https://flashbots.github.io/relay-specs/#/Builder/getValidators>
@@ -150,6 +149,63 @@ where
                 .into_response(),
             None => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         }
+    }
+
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints>
+    pub async fn constraints(
+        Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
+        Query(slot): Query<u64>,
+    ) -> Result<impl IntoResponse, BuilderApiError> {
+        let head_slot = api.curr_slot_info.read().await.0;
+        
+        if slot > head_slot || slot < head_slot - 32 {
+            return Err(BuilderApiError::IncorrectSlot(slot));
+        }
+        
+        match api.auctioneer.get_constraints(slot).await {
+            Ok(Some(cache)) => {
+                let constraints = cache
+                    .into_iter()
+                    .map(|data| data.signed_constraints)
+                    .collect::<Vec<SignedConstraints>>();
+        
+                Ok(Json(constraints))
+            }
+            Ok(None) => {
+                Ok(Json(vec![])) // Return an empty vector if no constraints are found
+            }
+            Err(err) => {
+                warn!(error=%err, "Failed to get constraints");
+                Err(BuilderApiError::AuctioneerError(err))
+            }
+        }
+    }
+
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints-stream>
+    pub async fn constraints_stream(
+        Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
+    ) -> Sse<impl Stream<Item = Result<Event, BuilderApiError>>> {
+        let constraints_rx = api.constraints_tx.subscribe();
+        let stream = BroadcastStream::new(constraints_rx);
+
+        let filtered = stream.map(|result| match result {
+            Ok(constraint) => match serde_json::to_string(&constraint) {
+                Ok(json) => Ok(Event::default()
+                    .data(json)
+                    .event("signed_constraint")
+                    .retry(Duration::from_millis(50))),
+                Err(err) => {
+                    warn!(error = %err, "Failed to serialize constraint");
+                    Err(BuilderApiError::SszSerializeError)
+                }
+            },
+            Err(err) => {
+                warn!(error = %err, "Error receiving constraint message");
+                Err(BuilderApiError::InternalError)
+            }
+        });
+
+        Sse::new(filtered).keep_alive(KeepAlive::default())
     }
 
     /// Handles the submission of a new block by performing various checks and verifications
