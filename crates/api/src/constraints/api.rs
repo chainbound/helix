@@ -2,10 +2,10 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::{api::constraints_api::{SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsMessage, ConstraintsWithProofData, ProofError, SignedConstraints, SignedConstraintsWithProofData}, ConstraintSubmissionTrace};
+use helix_common::{api::constraints_api::{SignableBLS, SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsMessage, ConstraintsWithProofData, ProofError, SignedConstraints, SignedConstraintsWithProofData}, ConstraintSubmissionTrace};
 use helix_database::DatabaseService;
 use helix_datastore::Auctioneer;
-use helix_utils::signing::verify_signed_builder_message as verify_signature;
+use ethereum_consensus::signing::verify_signature;
 use tracing::{info, warn, error};
 use uuid::Uuid;
 use std::{sync::Arc, time::{SystemTime, UNIX_EPOCH}};
@@ -76,16 +76,16 @@ where
         );
 
         // Decode the incoming request body into a payload.
-        let constraints = decode_constraints_submission(req, &mut trace, &request_id).await?;
+        let signed_constraints = decode_constraints_submission(req, &mut trace, &request_id).await?;
 
-        if constraints.is_empty() {
+        if signed_constraints.is_empty() {
             return Err(ConstraintsApiError::NilConstraints);
         }
 
         // Add all the constraints to the cache
-        for mut signed_constraints in constraints {
-            let pubkey = signed_constraints.message.pubkey.clone();
-            let message = &mut signed_constraints.message;
+        for constraint in signed_constraints {
+            let pubkey = constraint.message.pubkey.clone();
+            let message = &constraint.message;
             
             // Check for conflicts in the constraints
             let saved_constraints = api.auctioneer.get_constraints(message.slot).await?;
@@ -96,14 +96,13 @@ where
             // Check if the maximum number of constraints per slot has been reached
             if saved_constraints.is_some_and(|c| c.len() +1 > MAX_CONSTRAINTS_PER_SLOT) {
                 return Err(ConstraintsApiError::MaxConstraintsReached);
-            } 
+            }
 
             // Verify the signature.
-            if let Err(_) = verify_signature(
-                message,
-                &signed_constraints.signature,
+            if let Err(err) = verify_signature(
                 &pubkey,
-                &api.chain_info.context
+                &message.digest(),
+                &constraint.signature,
             ) {
                 return Err(ConstraintsApiError::InvalidSignature);
             };
@@ -111,16 +110,16 @@ where
             // Once we support sending messages signed with correct validator pubkey on the sidecar, 
             // return error if invalid
 
-            let message = signed_constraints.message.clone();
+            let message = constraint.message.clone();
 
             // Send to the constraints channel
-            api.constraints_handle.send_constraints(signed_constraints.clone());
+            api.constraints_handle.send_constraints(constraint.clone());
 
             // Finally add the constraints to the redis cache
             if let Err(err) = api.save_constraints_to_auctioneer(
                 &mut trace,
                 message.slot,
-                signed_constraints,
+                constraint,
                 &request_id
             ).await {
                 error!(request_id = %request_id, error = %err, "Failed to save constraints to auctioneer");
@@ -173,11 +172,10 @@ where
         let message = &mut signed_delegation.message;
         
         // Verify the delegation signature
-        if let Err(e) = verify_signature(
-            message,
-            &signed_delegation.signature,
+        if let Err(_) = verify_signature(
             &pubkey,
-            &api.chain_info.context
+            &message.digest(),
+            &signed_delegation.signature,
         ) {
             return Err(ConstraintsApiError::InvalidSignature);
         };
@@ -238,12 +236,12 @@ where
 
         let pubkey = signed_revocation.message.validator_pubkey.clone();
         let message = &mut signed_revocation.message;
+        
         // Verify the revocation signature
         if let Err(e) = verify_signature(
-            message,
-            &signed_revocation.signature,
             &pubkey,
-            &api.chain_info.context
+            &message.digest(),
+            &signed_revocation.signature,
         ) {
             return Err(ConstraintsApiError::InvalidSignature);
         };
@@ -282,10 +280,10 @@ where
         &self,
         trace: &mut ConstraintSubmissionTrace,
         slot: Slot,
-        signed_constraints: SignedConstraints,
+        constraint: SignedConstraints,
         request_id: &Uuid,
     ) -> Result<(), ConstraintsApiError> {
-        let message_with_data = SignedConstraintsWithProofData::try_from(signed_constraints)?;
+        let message_with_data = SignedConstraintsWithProofData::try_from(constraint)?;
         match self.auctioneer
             .save_constraints(slot, message_with_data)
             .await

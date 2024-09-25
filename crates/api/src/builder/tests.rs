@@ -11,7 +11,7 @@ mod tests {
     use axum::{ http::{header, Method, Request, Uri}, Form};
     use reqwest_eventsource::{EventSource, Event as ReqwestEvent};
     use tokio_tungstenite::{connect_async, tungstenite::{self, Message}};
-    use tracing::info;
+    use tracing::{debug, info};
     use core::panic;
     use ethereum_consensus::{
         builder::{SignedValidatorRegistration, ValidatorRegistration}, configs::mainnet::CAPELLA_FORK_EPOCH, deneb::{Transaction, Withdrawal}, phase0::mainnet::SLOTS_PER_EPOCH, primitives::{BlsPublicKey, BlsSignature}, ssz::{self, prelude::*}, types::mainnet::{ExecutionPayload, ExecutionPayloadHeader}, Fork
@@ -598,19 +598,19 @@ mod tests {
         assert_eq!(deneb_payload.blob_gas_used, 100);
         assert_eq!(deneb_payload.excess_blob_gas, 50);
         assert!(decoded_submission.blobs_bundle().is_some());
-    }
+    }  
 
     #[tokio::test]
     #[serial]
-    async fn test_constraints_stream() {
+    async fn test_constraints_stream_ok() {
         tracing_subscriber::fmt::init();
 
         // Start the server
-        let (tx, http_config, api, _slot_update_receiver, constraints_handle) = start_api_server_with_constraints().await;
+        let (tx, http_config, _api, _slot_update_receiver, constraints_handle) = start_api_server_with_constraints().await;
 
         // GET constraints stream
         let req_url = 
-            format!("{}{}", http_config.base_url(), Route::BuilderConstraintsStream.path());
+            format!("{}{}", http_config.base_url(), Route::GetBuilderConstraintsStream.path());
         let client = reqwest::Client::new();
         let req = client.get(req_url.as_str()).header("header", "text/event-stream");
 

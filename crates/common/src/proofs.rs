@@ -4,11 +4,12 @@ use ethereum_consensus::{
 };
 use reth_primitives::{TxHash, keccak256, B256};
 use tree_hash::Hash256;
+use sha2::{Digest, Sha256};
 
 // Import the new version of the `ssz-rs` crate for multiproof verification.
 use ::ssz_rs as ssz;
 
-use crate::api::constraints_api::MAX_CONSTRAINTS_PER_SLOT;
+use crate::api::constraints_api::{SignableBLS, MAX_CONSTRAINTS_PER_SLOT};
 use crate::eth::SignedBuilderBid;
 
 #[derive(Debug, thiserror::Error)]
@@ -59,6 +60,20 @@ pub struct ConstraintsMessage {
     pub transactions: List<Transaction, MAX_CONSTRAINTS_PER_SLOT>,
 }
 
+impl SignableBLS for ConstraintsMessage {
+    fn digest(&self) -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        hasher.update(&self.pubkey.to_vec());
+        hasher.update(&self.slot.to_le_bytes());
+        hasher.update((self.top as u8).to_le_bytes());
+        for tx in self.transactions.iter() {
+            hasher.update(&keccak256(tx.to_vec()).as_slice());
+        }
+
+        hasher.finalize().into()
+    }
+}
+
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct ConstraintsWithProofData {
     pub message: ConstraintsMessage,
@@ -67,7 +82,7 @@ pub struct ConstraintsWithProofData {
     pub proof_data: Vec<(TxHash, HashTreeRoot)>,
 }
 
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct SignedConstraintsWithProofData {
     pub signed_constraints: SignedConstraints,
     pub proof_data: Vec<(TxHash, HashTreeRoot)>,

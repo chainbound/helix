@@ -156,8 +156,8 @@ impl RouterConfig {
                 Route::SubmitBlockOptimistic,
                 Route::SubmitHeader,
                 Route::GetTopBid,
-                Route::BuilderConstraints,
-                Route::BuilderConstraintsStream,
+                Route::GetBuilderConstraints,
+                Route::GetBuilderConstraintsStream,
             ],
         );
 
@@ -261,9 +261,9 @@ pub enum Route {
 
     // Constraints API: Relay <https://chainbound.github.io/bolt-docs/api/relay>
     /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#constraints>
-    BuilderConstraints,
+    GetBuilderConstraints,
     /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#constraints_stream>
-    BuilderConstraintsStream,
+    GetBuilderConstraintsStream,
     /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#blocks_with_proofs>
     SubmitBlockWithProofs,
 }
@@ -288,8 +288,8 @@ impl Route {
             Route::SubmitBuilderConstraints => format!("{PATH_CONSTRAINTS_API}{PATH_SUBMIT_BUILDER_CONSTRAINTS}"),
             Route::DelegateSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_DELEGATE_SUBMISSION_RIGHTS}"),
             Route::RevokeSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_REVOKE_SUBMISSION_RIGHTS}"),
-            Route::BuilderConstraints => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS}"),
-            Route::BuilderConstraintsStream => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS_STREAM}"),
+            Route::GetBuilderConstraints => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS}"),
+            Route::GetBuilderConstraintsStream => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS_STREAM}"),
             Route::All => panic!("All is not a real route"),
             Route::BuilderApi => panic!("BuilderApi is not a real route"),
             Route::ProposerApi => panic!("ProposerApi is not a real route"),

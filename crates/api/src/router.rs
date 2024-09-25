@@ -94,10 +94,10 @@ pub fn build_router(
             Route::GetTopBid => {
                 router = router.route(&route.path(), get(BuilderApiProd::get_top_bid));
             }
-            Route::BuilderConstraints => {
+            Route::GetBuilderConstraints => {
                 router = router.route(&route.path(), get(BuilderApiProd::constraints));
             }
-            Route::BuilderConstraintsStream => {
+            Route::GetBuilderConstraintsStream => {
                 router = router.route(&route.path(), get(BuilderApiProd::constraints_stream));
             }
             Route::Status => {

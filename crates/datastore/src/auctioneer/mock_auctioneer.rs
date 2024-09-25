@@ -19,6 +19,7 @@ pub struct MockAuctioneer {
     pub builder_demoted: Arc<AtomicBool>,
     pub best_bid: Arc<Mutex<Option<SignedBuilderBid>>>,
     pub versioned_execution_payload: Arc<Mutex<Option<PayloadAndBlobs>>>,
+    pub constraints: Arc<Mutex<HashMap<u64, Vec<SignedConstraintsWithProofData>>>>,
 }
 
 impl MockAuctioneer {
@@ -28,6 +29,7 @@ impl MockAuctioneer {
             builder_demoted: Arc::new(AtomicBool::new(false)),
             best_bid: Arc::new(Mutex::new(None)),
             versioned_execution_payload: Arc::new(Mutex::new(None)),
+            constraints: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -39,13 +41,21 @@ impl Auctioneer for MockAuctioneer {
         slot: u64,
         constraints: SignedConstraintsWithProofData,
     ) -> Result<(), AuctioneerError> {
+        let mut constraints_map = self.constraints.lock().unwrap();
+        let constraints_vec = constraints_map.entry(slot).or_insert_with(Vec::new);
+        constraints_vec.push(constraints);
         Ok(())
     }
     async fn get_constraints(
         &self,
         slot: u64,
     ) -> Result<Option<Vec<SignedConstraintsWithProofData>>, AuctioneerError> {
-        Ok(None)
+        let temp = self.constraints.lock().unwrap();
+        let constraints = temp.get(&slot);
+        match constraints {
+            Some(constraints) => Ok(Some(constraints.to_vec())),
+            None => Ok(None),
+        }
     }
 
     async fn save_inclusion_proof(

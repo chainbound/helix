@@ -38,6 +38,7 @@ use helix_database::DatabaseService;
 use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
 use helix_housekeeper::{ChainUpdate, PayloadAttributesUpdate, SlotUpdate};
 use helix_utils::{calculate_withdrawals_root, get_payload_attributes_key, has_reached_fork, try_decode_into};
+use serde::Deserialize;
 
 use crate::{builder::{
     error::{self, BuilderApiError}, traits::BlockSimulator, BlockSimRequest, DbInfo, OptimisticVersion,
@@ -47,6 +48,11 @@ use crate::{builder::{
 }};
 
 pub(crate) const MAX_PAYLOAD_LENGTH: usize = 1024 * 1024 * 10;
+
+#[derive(Deserialize)]
+pub struct SlotQuery {
+    slot: u64
+}
 
 #[derive(Clone)]
 pub struct BuilderApi<A, DB, S, G>
@@ -154,13 +160,15 @@ where
     /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints>
     pub async fn constraints(
         Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
-        Query(slot): Query<u64>,
+        Query(slot): Query<SlotQuery>,
     ) -> Result<impl IntoResponse, BuilderApiError> {
+        let slot = slot.slot;
         let head_slot = api.curr_slot_info.read().await.0;
         
         if slot > head_slot || slot < head_slot - 32 {
             return Err(BuilderApiError::IncorrectSlot(slot));
         }
+
         
         match api.auctioneer.get_constraints(slot).await {
             Ok(Some(cache)) => {
