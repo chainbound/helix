@@ -157,6 +157,8 @@ where
         }
     }
 
+    /// This endpoint returns a list of signed constraints for a given `slot`.
+    /// 
     /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints>
     pub async fn constraints(
         Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
@@ -189,6 +191,8 @@ where
         }
     }
 
+    /// This endpoint returns a stream of signed constraints for a given `slot`.
+    /// 
     /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#constraints-stream>
     pub async fn constraints_stream(
         Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
@@ -216,6 +220,10 @@ where
         Sse::new(filtered).keep_alive(KeepAlive::default())
     }
 
+    /// This endpoint returns the active delegations for the validator scheduled to propose 
+    /// at the provided `slot`. The delegations are returned as a list of BLS pubkeys.
+    /// 
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#delegations>
     pub async fn delegations(
         Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
         Query(slot): Query<SlotQuery>,

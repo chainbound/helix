@@ -30,7 +30,7 @@ mod tests {
     const SUBMISSION_SLOT: u64 = HEAD_SLOT + 1;
     const SUBMISSION_TIMESTAMP: u64 = 1606824419;
     const VALIDATOR_INDEX: usize = 1;
-    const PUB_KEY: &str = "0x84e975405f8691ad7118527ee9ee4ed2e4e8bae973f6e29aa9ca9ee4aea83605ae3536d22acc9aa1af0545064eacf82e";
+    const PUB_KEY: &str = "0xa695ad325dfc7e1191fbc9f186f58eff42a634029731b18380ff89bf42c464a42cb8ca55b200f051f57f1e1893c68759";
 
     // +++ HELPER FUNCTIONS +++
 
@@ -361,6 +361,52 @@ mod tests {
         // Send JSON encoded request
         let resp = send_request(&req_url, Encoding::Json, req_payload).await;
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+        let _ = tx.send(());
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_get_delegations() {
+        tracing_subscriber::fmt::init();
+
+        // Start the server
+        let (tx, http_config, _constraints_api, _builder_api, mut slot_update_receiver) = start_api_server().await;
+
+        let slot_update_sender = slot_update_receiver.recv().await.unwrap();
+        send_dummy_slot_update(slot_update_sender.clone(), None, None, None).await;
+
+        let test_delegation: SignedDelegation = serde_json::from_str(_get_signed_delegation()).unwrap();
+
+        let req_url = format!("{}{}", http_config.base_url(), Route::DelegateSubmissionRights.path());
+        let req_payload = serde_json::to_vec(&test_delegation).unwrap();
+
+        // Send JSON encoded request
+        let resp = send_request(&req_url, Encoding::Json, req_payload).await;
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+        // Get delegations
+        let slot = 33;
+
+        let req_url = format!(
+            "{}{}",
+            http_config.base_url(),
+            Route::GetBuilderDelegations.path()
+        );
+
+        let resp = reqwest::Client::new()
+            .get(req_url)
+            .query(&[("slot", slot)])
+            .header("accept", "application/json")
+            .send()
+            .await
+            .unwrap();
+
+        // Ensure the response is OK
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+        let body: Vec<BlsPublicKey> = serde_json::from_str(&resp.text().await.unwrap()).unwrap();
+        assert_eq!(test_delegation.message.delegatee_pubkey, body.first().unwrap().clone());
 
         let _ = tx.send(());
     }

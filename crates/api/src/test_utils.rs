@@ -304,6 +304,10 @@ pub fn constraints_api_app() -> (
             get(BuilderApi::<MockAuctioneer, MockDatabaseService, MockSimulator, MockGossiper>::constraints_stream),
         )
         .route(
+            &Route::GetBuilderDelegations.path(),
+            get(BuilderApi::<MockAuctioneer, MockDatabaseService, MockSimulator, MockGossiper>::delegations),
+        )
+        .route(
             &Route::SubmitBuilderConstraints.path(),
             post(ConstraintsApi::<MockAuctioneer, MockDatabaseService>::submit_constraints),
         )
