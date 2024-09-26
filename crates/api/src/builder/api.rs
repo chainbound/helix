@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap, io::Read, ops::Deref, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}
+    collections::HashMap, io::Read, sync::Arc, time::{Duration, SystemTime, UNIX_EPOCH}
 };
 
 use axum::{
@@ -8,7 +8,7 @@ use axum::{
 use ethereum_consensus::{
     configs::mainnet::{CAPELLA_FORK_EPOCH, SECONDS_PER_SLOT},
     phase0::mainnet::SLOTS_PER_EPOCH,
-    primitives::{BlsPublicKey, Bytes32, Hash32},
+    primitives::{BlsPublicKey, Hash32},
     ssz::{self, prelude::*},
 };
 use flate2::read::GzDecoder;
@@ -29,7 +29,7 @@ use helix_common::{
         builder_api::{BuilderGetValidatorsResponse, BuilderGetValidatorsResponseEntry}, proposer_api::ValidatorRegistrationInfo
     }, bid_submission::{
         v2::header_submission::{
-            SignedHeaderSubmission, SignedHeaderSubmissionCapella, SignedHeaderSubmissionDeneb,
+            SignedHeaderSubmission, SignedHeaderSubmissionDeneb,
         },
         BidSubmission, BidTrace, SignedBidSubmission,
     }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData, InclusionProofs, SignedConstraints, SignedConstraintsWithProofData}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
@@ -37,7 +37,7 @@ use helix_common::{
 use helix_database::DatabaseService;
 use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
 use helix_housekeeper::{ChainUpdate, PayloadAttributesUpdate, SlotUpdate};
-use helix_utils::{calculate_withdrawals_root, get_payload_attributes_key, has_reached_fork, try_decode_into};
+use helix_utils::{get_payload_attributes_key, has_reached_fork, try_decode_into};
 use serde::Deserialize;
 
 use crate::{builder::{
@@ -511,6 +511,10 @@ where
         {
             match err {
                 BuilderApiError::DuplicateBlockHash { block_hash } => {
+                    // We dont return the error here as we want to continue processing the request.
+                    // This mitigates the risk of someone sending an invalid payload
+                    // with a valid header, which would block subsequent submissions with the same
+                    // header and valid payload.
                     debug!(
                         request_id = %request_id,
                         block_hash = ?block_hash,
@@ -606,7 +610,7 @@ where
             }
         }
 
-        // Save bid and proofs to auctioneer
+        // Save bid to auctioneer
         match api
             .save_bid_to_auctioneer(
                 &payload,
@@ -617,6 +621,8 @@ where
             )
             .await?
         {
+            // If the bid was succesfully saved then we gossip the header and payload to all other
+            // relays.
             Some((builder_bid, execution_payload)) => {
                 api.gossip_new_submission(
                     &payload,
@@ -628,7 +634,7 @@ where
                 )
                 .await;
             }
-            None => { /* Bid wasn't saved, so no need to gossip as it will never be served */ }
+            None => { /* Bid wasn't saved so no need to gossip as it will never be served */ }
         }
 
         // Save inclusion proofs to auctioneer.

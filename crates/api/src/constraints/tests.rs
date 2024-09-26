@@ -8,6 +8,7 @@ mod tests {
     use axum::body::Body;
     use ethereum_consensus::{builder::ValidatorRegistration, primitives::{BlsPublicKey, BlsSignature}, ssz};
     use helix_common::{api::{builder_api::{BuilderGetValidatorsResponse, BuilderGetValidatorsResponseEntry}, constraints_api::{SignedDelegation, SignedRevocation}, proposer_api::ValidatorRegistrationInfo}, bellatrix::{ByteVector, List}, deneb::SignedValidatorRegistration, proofs::SignedConstraints, Route, ValidatorPreferences};
+    use helix_common::api::constraints_api::MAX_CONSTRAINTS_PER_SLOT;
     use helix_database::MockDatabaseService;
     use helix_datastore::MockAuctioneer;
     use helix_housekeeper::{ChainUpdate, SlotUpdate};
@@ -198,6 +199,39 @@ mod tests {
         ]"#
     }
 
+    fn _get_signed_constraint_conflict_1_json() -> &'static str {
+        r#"[
+            {
+            "message": {
+                "pubkey": "0xa695ad325dfc7e1191fbc9f186f58eff42a634029731b18380ff89bf42c464a42cb8ca55b200f051f57f1e1893c68759",
+                "slot": 32,
+                "top": true,
+                "transactions": [
+                "0x02f86c870c72dd9d5e883e4d0183408f2382520894d2e2adf7177b7a8afddbc12d1634cf23ea1a71020180c001a08556dcfea479b34675db3fe08e29486fe719c2b22f6b0c1741ecbbdce4575cc6a01cd48009ccafd6b9f1290bbe2ceea268f94101d1d322c787018423ebcbc87ab4",
+                "0x02f9017b8501a2140cff8303dec685012a05f2008512a05f2000830249f094843669e5220036eddbaca89d8c8b5b82268a0fc580b901040cc7326300000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000000000000000000000000000022006292538e66f0000000000000000000000005ba38f2c245618e39f6fa067bf1dec304e73ff3c00000000000000000000000092f0ee29e6e1bf0f7c668317ada78f5774a6cb7f000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000003fac6482aee49bf58515be2d3fb58378a8497cc9000000000000000000000000c6cc140787b02ae479a10e41169607000c0d44f6c080a00cf74c45dbe9ee1fb923118ec5ce9db8f88cd651196ed3f9d4f8f2a65827e611a04a6bc1d49a7e18b7c92e8f3614cae116b1832ceb311c81d54b2c87de1545f68f"
+                ]
+            },
+            "signature": "0x97d249cbd4b2a33fab4e8d0b698a1905815375c6eb905356768bc23c90b5f2972e03580116849e3f250e7c650486549d16f090135a109c9dd21360e1ca52cb941fada8bdf0280fe184ec4adba7d9246a6d9fc516bfbe508ad1c21cfc2e169b52"
+            }
+        ]"#
+    }
+
+    fn _get_signed_constraint_conflict_2_json() -> &'static str {
+        r#"[
+            {
+            "message": {
+                "pubkey": "0xa695ad325dfc7e1191fbc9f186f58eff42a634029731b18380ff89bf42c464a42cb8ca55b200f051f57f1e1893c68759",
+                "slot": 32,
+                "top": true,
+                "transactions": [
+                "0x02f86c870c72dd9d5e883e4d0183408f2382520894d2e2adf7177b7a8afddbc12d1634cf23ea1a71020180c001a08556dcfea479b34675db3fe08e29486fe719c2b22f6b0c1741ecbbdce4575cc6a01cd48009ccafd6b9f1290bbe2ceea268f94101d1d322c787018423ebcbc87ab4"
+                ]
+            },
+            "signature": "0xb648321b682a445d377c3a11180213f1c21e5a645b2f80fb6ec31a85550d3bb0a0fb1eef806d6403a76ede552f87c8f219e0703d254dc78dca0b4a904794f81c995884dd90648190f4e4c5badc7463314ce57ceb5448767211a3c4af5b860650"
+            }
+        ]"#
+    }
+
     fn _get_signed_delegation() -> &'static str {
         r#"
         {
@@ -213,6 +247,49 @@ mod tests {
     // +++ TESTS +++
     #[tokio::test]
     #[serial]
+    async fn test_submit_constraints_conflict() {
+        tracing_subscriber::fmt::init();
+
+        // Start the server
+        let (tx, http_config, _constraints_api, _builder_api, mut slot_update_receiver) = start_api_server().await;
+
+        let slot_update_sender = slot_update_receiver.recv().await.unwrap();
+        send_dummy_slot_update(slot_update_sender.clone(), None, None, None).await;
+
+        let test_constraint: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> = serde_json::from_str(_get_signed_constraint_conflict_1_json()).unwrap();
+
+        // Submit constraints
+        let req_url = format!("{}{}", http_config.base_url(), Route::SubmitBuilderConstraints.path());
+
+        // Send JSON encoded request
+        let resp = send_request(
+            &req_url,
+            Encoding::Json,
+            serde_json::to_vec(&test_constraint).unwrap(),
+        )
+        .await;
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
+
+        let test_constraint: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> = serde_json::from_str(_get_signed_constraint_conflict_2_json()).unwrap();
+
+        // Send JSON encoded request
+        let resp = send_request(
+            &req_url,
+            Encoding::Json,
+            serde_json::to_vec(&test_constraint).unwrap(),
+        )
+        .await;
+
+        // This will result in a conflict as 2 constraints are submitted with top = true
+        assert_eq!(resp.status(), reqwest::StatusCode::CONFLICT);
+        info!("Response: {:?}", resp);
+
+        // Send shutdown signal
+        let _ = tx.send(());
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn test_submit_constraints_and_get_constraints_ok() {
         tracing_subscriber::fmt::init();
 
@@ -222,32 +299,22 @@ mod tests {
         let slot_update_sender = slot_update_receiver.recv().await.unwrap();
         send_dummy_slot_update(slot_update_sender.clone(), None, None, None).await;
 
-        let test_constraints: List<SignedConstraints, 128> = serde_json::from_str(_get_signed_constraints_json()).unwrap();
+        let test_constraints: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> = serde_json::from_str(_get_signed_constraints_json()).unwrap();
 
         // Submit constraints
         let req_url = format!("{}{}", http_config.base_url(), Route::SubmitBuilderConstraints.path());
 
-        // Send JSON encoded request
-        let resp = send_request(
-            &req_url,
-            Encoding::Json,
-            serde_json::to_vec(&test_constraints).unwrap(),
-        )
-        .await;
-        assert_eq!(resp.status(), reqwest::StatusCode::OK);
-
         // Send SSZ encoded request
-        // The constraints are same so they will conflict
         let resp = send_request(
             &req_url,
             Encoding::Ssz,
             ssz::prelude::serialize(&test_constraints).unwrap(),
         )
         .await;
-        assert_eq!(resp.status(), reqwest::StatusCode::CONFLICT);
+        assert_eq!(resp.status(), reqwest::StatusCode::OK);
 
         // Correct and complete the below
-        let slot = 1;
+        let slot = 32;
 
         // Get constraints
         let req_url = format!(
@@ -264,15 +331,16 @@ mod tests {
             .await
             .unwrap();
 
-        info!("req_url: {}", resp.url());
-        info!("resp: {:?}", resp);
-
         // Ensure the response is OK
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
-
+        
         // Print the response body
-        let body = resp.text().await.unwrap();
-        info!("Response body: {}", body);
+        let body: Vec<SignedConstraints> = serde_json::from_str(&resp.text().await.unwrap()).unwrap();
+        info!("Response body: {:?}", body);
+        // TODO: clean this
+        let constraint = body.first().unwrap().clone();
+        let send = test_constraints.first().unwrap().clone();
+        assert_eq!(constraint.signature, send.signature);
 
         // Send shutdown signal
         let _ = tx.send(());
