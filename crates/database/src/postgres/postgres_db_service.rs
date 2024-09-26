@@ -365,6 +365,29 @@ impl Default for PostgresDatabaseService {
 
 #[async_trait]
 impl DatabaseService for PostgresDatabaseService {
+    async fn get_validator_delegations(
+        &self,
+        validator_pubkey: BlsPublicKey,  // Passing the validator pubkey as a byte slice
+    ) -> Result<Vec<BlsPublicKey>, DatabaseError> {
+        match self
+            .pool
+            .get()
+            .await?
+            .query(
+                "
+                SELECT delegatee_pubkey 
+                FROM validator_delegations
+                WHERE validator_pubkey = $1
+                ",
+                &[&(validator_pubkey.as_ref())],
+            )
+            .await?
+        {
+            rows if rows.is_empty() => Err(DatabaseError::ValidatorDelegationNotFound),
+            rows => parse_rows(rows),
+        }
+    }
+
     async fn save_validator_delegation(
         &self,
         signed_delegation: SignedDelegation,

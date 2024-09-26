@@ -100,6 +100,9 @@ pub fn build_router(
             Route::GetBuilderConstraintsStream => {
                 router = router.route(&route.path(), get(BuilderApiProd::constraints_stream));
             }
+            Route::GetBuilderDelegations => {
+                router = router.route(&route.path(), get(BuilderApiProd::delegations));
+            }
             Route::Status => {
                 router = router.route(&route.path(), get(ProposerApiProd::status));
             }

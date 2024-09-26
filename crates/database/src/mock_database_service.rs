@@ -38,6 +38,13 @@ impl MockDatabaseService {
 
 #[async_trait]
 impl DatabaseService for MockDatabaseService {
+    async fn get_validator_delegations(
+        &self,
+        pub_key: BlsPublicKey,
+    ) -> Result<Vec<BlsPublicKey>, DatabaseError> {
+        Ok(vec![pub_key])
+    }
+    
     async fn save_validator_delegation(
         &self,
         signed_delegation: SignedDelegation,

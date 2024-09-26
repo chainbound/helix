@@ -49,6 +49,9 @@ pub enum DatabaseError {
     #[error("Block submission not found")]
     RowParsingError(#[from] Box<dyn std::error::Error + Sync + Send>),
 
+    #[error("Validator delegation not found")]
+    ValidatorDelegationNotFound,
+
     #[error("General error")]
     GeneralError,
 }

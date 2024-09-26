@@ -7,6 +7,7 @@ use ethereum_consensus::{
     ssz::{self, prelude::*},
 };
 use helix_common::simulator::BlockSimError;
+use helix_database::error::DatabaseError;
 use helix_datastore::error::AuctioneerError;
 
 #[derive(Debug, thiserror::Error)]
@@ -106,6 +107,9 @@ pub enum BuilderApiError {
 
     #[error("datastore error: {0}")]
     AuctioneerError(#[from] AuctioneerError),
+
+    #[error("database error: {0}")]
+    DatabaseError(#[from] DatabaseError),
 
     #[error("incorrect prev_randao - got: {got:?}, expected: {expected:?}")]
     PrevRandaoMismatch { got: Bytes32, expected: Bytes32 },
@@ -233,6 +237,9 @@ impl IntoResponse for BuilderApiError {
             },
             BuilderApiError::AuctioneerError(err) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Auctioneer error: {err}")).into_response()
+            },
+            BuilderApiError::DatabaseError(err) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {err}")).into_response()
             },
             BuilderApiError::FeeRecipientMismatch { got, expected } => {
                 (StatusCode::BAD_REQUEST, format!("Fee recipient mismatch. got: {got:?}, expected: {expected:?}")).into_response()

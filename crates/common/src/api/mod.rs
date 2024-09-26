@@ -13,6 +13,7 @@ pub(crate) const PATH_SUBMIT_HEADER: &str = "/headers";
 pub(crate) const PATH_GET_TOP_BID: &str = "/top_bid";
 pub(crate) const PATH_BUILDER_CONSTRAINTS: &str = "/constraints";
 pub(crate) const PATH_BUILDER_CONSTRAINTS_STREAM: &str = "/constraints_stream";
+pub(crate) const PATH_BUILDER_DELEGATIONS: &str = "/delegations";
 
 pub(crate) const PATH_PROPOSER_API: &str = "/eth/v1/builder";
 

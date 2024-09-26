@@ -264,6 +264,7 @@ pub enum Route {
     GetBuilderConstraints,
     /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#constraints_stream>
     GetBuilderConstraintsStream,
+    GetBuilderDelegations,
     /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#blocks_with_proofs>
     SubmitBlockWithProofs,
 }
@@ -290,6 +291,7 @@ impl Route {
             Route::RevokeSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_REVOKE_SUBMISSION_RIGHTS}"),
             Route::GetBuilderConstraints => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS}"),
             Route::GetBuilderConstraintsStream => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS_STREAM}"),
+            Route::GetBuilderDelegations => format!("{PATH_BUILDER_API}{PATH_BUILDER_DELEGATIONS}"),
             Route::All => panic!("All is not a real route"),
             Route::BuilderApi => panic!("BuilderApi is not a real route"),
             Route::ProposerApi => panic!("ProposerApi is not a real route"),

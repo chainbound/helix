@@ -34,7 +34,7 @@ use helix_common::{
         BidSubmission, BidTrace, SignedBidSubmission,
     }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData, InclusionProofs, SignedConstraints, SignedConstraintsWithProofData}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
 };
-use helix_database::DatabaseService;
+use helix_database::{error::DatabaseError, DatabaseService};
 use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
 use helix_housekeeper::{ChainUpdate, PayloadAttributesUpdate, SlotUpdate};
 use helix_utils::{get_payload_attributes_key, has_reached_fork, try_decode_into};
@@ -177,10 +177,10 @@ where
                     .map(|data| data.signed_constraints)
                     .collect::<Vec<SignedConstraints>>();
         
-                Ok(Json(constraints))
+                Ok(Json(constraints).into_response())
             }
             Ok(None) => {
-                Ok(Json(vec![])) // Return an empty vector if no constraints are found
+                Ok(StatusCode::NO_CONTENT.into_response())
             }
             Err(err) => {
                 warn!(error=%err, "Failed to get constraints");
@@ -214,6 +214,39 @@ where
         });
 
         Sse::new(filtered).keep_alive(KeepAlive::default())
+    }
+
+    pub async fn delegations(
+        Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
+        Query(slot): Query<SlotQuery>,
+    ) -> Result<impl IntoResponse, BuilderApiError> {
+        let slot = slot.slot;
+        let duty_bytes = api.proposer_duties_response.read().await.clone();
+        let proposer_duties: Vec<BuilderGetValidatorsResponse> = serde_json::from_slice(&duty_bytes.unwrap()).unwrap();
+
+        let duty = proposer_duties
+            .iter()
+            .find(|duty| duty.slot == slot)
+            .ok_or(BuilderApiError::ProposerDutyNotFound)?;
+
+        let pubkey = duty.entry.message.public_key.clone();
+
+        match api.db.get_validator_delegations(pubkey).await {
+            Ok(delegations) => Ok(Json(delegations).into_response()),
+
+            Err(err) => {
+                match err {
+                    DatabaseError::ValidatorDelegationNotFound => {
+                        warn!("No delegations found for validator");
+                        Ok(StatusCode::NO_CONTENT.into_response())
+                    }
+                    _ => {
+                        warn!(error=%err, "Failed to get delegations");
+                        Err(BuilderApiError::DatabaseError(err))
+                    }
+                }
+            }
+        }
     }
 
     /// Handles the submission of a new block by performing various checks and verifications
