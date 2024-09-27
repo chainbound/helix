@@ -481,10 +481,10 @@ where
     /// 1. Receives the request and decodes the payload into a `SignedBidSubmission` object.
     /// 2. Validates the builder and checks against the next proposer duty.
     /// 3. Verifies the signature of the payload.
-    /// 4. Fetches and handles inclusion proofs.
+    /// 4. Fetches the constraints for the slot and verifies the inclusion proofs.
     /// 5. Runs further validations against the auctioneer.
     /// 6. Simulates the block to validate the payment.
-    /// 7. Saves the bid and proofs to the auctioneer and db.
+    /// 7. Saves the bid and inclusion proof to the auctioneer.
     ///
     /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#blocks_with_proofs>
     pub async fn submit_block_with_proofs(
@@ -678,7 +678,7 @@ where
             None => { /* Bid wasn't saved so no need to gossip as it will never be served */ }
         }
 
-        // Save inclusion proofs to auctioneer.
+        // Save inclusion proof to auctioneer.
         if let Err(err) = api.save_inclusion_proof(
             payload.slot(),
             payload.proposer_public_key(),

@@ -441,6 +441,17 @@ where
         }
     }
 
+    /// Retrieves the best bid header (with inclusion proof) for the specified slot, parent hash, and public key.
+    /// 
+    /// This function accepts a slot number, parent hash and public_key.
+    /// 1. Validates that the request's slot is not older than the head slot.
+    /// 2. Validates the request timestamp to ensure it's not too late.
+    /// 3. Fetches the best bid for the given parameters from the auctioneer.
+    /// 4. Fetches the inclusion proof for the best bid.
+    /// 
+    /// The function returns a JSON response containing the best bid and inclusion proofs if found.
+    /// 
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/builder#get_header_with_proofs>
     pub async fn get_header_with_proofs(
         Extension(proposer_api): Extension<Arc<ProposerApi<A, DB, M, G>>>,
         Path(GetHeaderParams { slot, parent_hash, public_key }): Path<GetHeaderParams>,
@@ -1146,7 +1157,7 @@ where
         }
     }
 
-    /// Fetches the inclusion proof for a given slot, public key, and block hash.
+    /// This function fetches the inclusion proof for a given slot, public key, and block hash.
     async fn get_inclusion_proof(
         &self,
         slot: u64,
