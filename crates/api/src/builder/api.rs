@@ -170,7 +170,6 @@ where
         if slot > head_slot || slot < head_slot - 32 {
             return Err(BuilderApiError::IncorrectSlot(slot));
         }
-
         
         match api.auctioneer.get_constraints(slot).await {
             Ok(Some(cache)) => {
@@ -179,10 +178,10 @@ where
                     .map(|data| data.signed_constraints)
                     .collect::<Vec<SignedConstraints>>();
         
-                Ok(Json(constraints).into_response())
+                Ok(Json(constraints))
             }
             Ok(None) => {
-                Ok(StatusCode::NO_CONTENT.into_response())
+                Ok(Json(vec![])) // Return an empty vector if no delegations found
             }
             Err(err) => {
                 warn!(error=%err, "Failed to get constraints");
@@ -240,13 +239,13 @@ where
         let pubkey = duty.entry.message.public_key.clone();
 
         match api.db.get_validator_delegations(pubkey).await {
-            Ok(delegations) => Ok(Json(delegations).into_response()),
+            Ok(delegations) => Ok(Json(delegations)),
 
             Err(err) => {
                 match err {
                     DatabaseError::ValidatorDelegationNotFound => {
                         warn!("No delegations found for validator");
-                        Ok(StatusCode::NO_CONTENT.into_response())
+                        Ok(Json(vec![])) // Return an empty vector if no delegations found
                     }
                     _ => {
                         warn!(error=%err, "Failed to get delegations");
