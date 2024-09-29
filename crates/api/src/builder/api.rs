@@ -38,7 +38,7 @@ use helix_database::{error::DatabaseError, DatabaseService};
 use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
 use helix_housekeeper::{ChainUpdate, PayloadAttributesUpdate, SlotUpdate};
 use helix_utils::{get_payload_attributes_key, has_reached_fork, try_decode_into};
-use serde::Deserialize;
+use serde::{de, Deserialize};
 
 use crate::{builder::{
     error::{self, BuilderApiError}, traits::BlockSimulator, BlockSimRequest, DbInfo, OptimisticVersion,
@@ -167,7 +167,7 @@ where
         let slot = slot.slot;
         let head_slot = api.curr_slot_info.read().await.0;
         
-        if slot > head_slot || slot < head_slot - 32 {
+        if slot < head_slot || slot > head_slot + 32 {
             return Err(BuilderApiError::IncorrectSlot(slot));
         }
         
@@ -181,6 +181,7 @@ where
                 Ok(Json(constraints))
             }
             Ok(None) => {
+                debug!("No constraints found for slot");
                 Ok(Json(vec![])) // Return an empty vector if no delegations found
             }
             Err(err) => {
@@ -228,8 +229,12 @@ where
         Query(slot): Query<SlotQuery>,
     ) -> Result<impl IntoResponse, BuilderApiError> {
         let slot = slot.slot;
-        let duty_bytes = api.proposer_duties_response.read().await.clone();
-        let proposer_duties: Vec<BuilderGetValidatorsResponse> = serde_json::from_slice(&duty_bytes.unwrap()).unwrap();
+        let Some(duty_bytes) = &*api.proposer_duties_response.read().await else {
+            return Err(BuilderApiError::ProposerDutyNotFound);
+        };
+        let Ok(proposer_duties) = serde_json::from_slice::<Vec<BuilderGetValidatorsResponse>>(duty_bytes) else {
+            return Err(BuilderApiError::DeserializeError);
+        };
 
         let duty = proposer_duties
             .iter()
@@ -244,7 +249,7 @@ where
             Err(err) => {
                 match err {
                     DatabaseError::ValidatorDelegationNotFound => {
-                        warn!("No delegations found for validator");
+                        debug!("No delegations found for validator");
                         Ok(Json(vec![])) // Return an empty vector if no delegations found
                     }
                     _ => {
@@ -1482,7 +1487,7 @@ where
         let root = root.to_vec().as_slice().try_into().expect("failed to convert to hash32");
     
         let proofs = payload.proofs().expect("proofs not found");
-        let constraints: Vec<ConstraintsWithProofData> = constraints.iter().map(|c| ConstraintsWithProofData {
+        let constraints: Vec<_> = constraints.iter().map(|c| ConstraintsWithProofData {
             message: c.signed_constraints.message.clone(),
             proof_data: c.proof_data.clone(),
         }).collect();

@@ -30,6 +30,9 @@ pub enum BuilderApiError {
     #[error("ssz serialize error")]
     SszSerializeError,
 
+    #[error("failed to deserialize")]
+    DeserializeError,
+
     #[error("failed to decode header-submission")]
     FailedToDecodeHeaderSubmission,
 
@@ -159,11 +162,14 @@ impl IntoResponse for BuilderApiError {
             BuilderApiError::IOError(err) => {
                 (StatusCode::BAD_REQUEST, format!("IO error: {err}")).into_response()
             },
+            BuilderApiError::SszDeserializeError(err) => {
+                (StatusCode::BAD_REQUEST, format!("SSZ deserialize error: {err}")).into_response()
+            },
             BuilderApiError::SszSerializeError => {
                 (StatusCode::BAD_REQUEST, format!("SSZ serialize error")).into_response()
             },
-            BuilderApiError::SszDeserializeError(err) => {
-                (StatusCode::BAD_REQUEST, format!("SSZ deserialize error: {err}")).into_response()
+            BuilderApiError::DeserializeError => {
+                (StatusCode::BAD_REQUEST, "Failed to deserialize").into_response()
             },
             BuilderApiError::FailedToDecodeHeaderSubmission => {
                 (StatusCode::BAD_REQUEST, "Failed to decode header submission").into_response()

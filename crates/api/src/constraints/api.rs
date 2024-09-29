@@ -110,15 +110,13 @@ where
             // Once we support sending messages signed with correct validator pubkey on the sidecar, 
             // return error if invalid
 
-            let message = constraint.message.clone();
-
             // Send to the constraints channel
             api.constraints_handle.send_constraints(constraint.clone());
 
             // Finally add the constraints to the redis cache
             if let Err(err) = api.save_constraints_to_auctioneer(
                 &mut trace,
-                message.slot,
+                constraint.message.slot,
                 constraint,
                 &request_id
             ).await {
