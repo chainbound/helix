@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 use helix_common::{
-    api::builder_api::TopBidUpdate, bid_submission::{
+    api::{builder_api::TopBidUpdate, constraints_api::{SignedDelegation, SignedRevocation}}, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::{SignedConstraintsWithProofData, InclusionProofs}, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
+    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::{InclusionProofs, SignedConstraintsWithProofData}, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
 };
 use helix_database::BuilderInfoDocument;
 
@@ -15,6 +15,21 @@ use tokio_stream::{Stream, StreamExt};
 #[async_trait]
 #[auto_impl::auto_impl(Arc)]
 pub trait Auctioneer: Send + Sync + Clone {
+    async fn get_validator_delegations(
+        &self,
+        pub_key: BlsPublicKey,
+    ) -> Result<Vec<SignedDelegation>, AuctioneerError>;
+    
+    async fn save_validator_delegation(
+        &self,
+        signed_delegation: SignedDelegation,
+    ) -> Result<(), AuctioneerError>;
+
+    async fn revoke_validator_delegation(
+        &self,
+        signed_revocation: SignedRevocation,
+    ) -> Result<(), AuctioneerError>;
+
     async fn save_constraints(
         &self,
         slot: u64,

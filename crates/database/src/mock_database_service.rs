@@ -43,38 +43,6 @@ impl MockDatabaseService {
 
 #[async_trait]
 impl DatabaseService for MockDatabaseService {
-    async fn get_validator_delegations(
-        &self,
-        pub_key: BlsPublicKey,
-    ) -> Result<Vec<BlsPublicKey>, DatabaseError> {
-        let validator_delegations = self.validator_delegations.lock().unwrap();
-        let delegations = validator_delegations.get(&pub_key);
-        match delegations {
-            Some(delegations) => Ok(delegations.clone()),
-            None => Ok(vec![]),
-        }
-    }
-
-    async fn save_validator_delegation(
-        &self,
-        signed_delegation: SignedDelegation,
-    ) -> Result<(), DatabaseError> {
-        // Add to the hashmap mapping
-        let mut validator_delegations = self.validator_delegations.lock().unwrap();
-        let delegatee_pub_key = signed_delegation.message.delegatee_pubkey;
-        let validator_pub_key = signed_delegation.message.validator_pubkey;
-        let delegations = validator_delegations.entry(validator_pub_key).or_insert_with(Vec::new);
-        delegations.push(delegatee_pub_key);
-        Ok(())
-    }
-    async fn revoke_validator_delegation(
-        &self,
-        signed_revocation: SignedRevocation,
-    ) -> Result<(), DatabaseError> {
-        println!("received revocation: {:?}", signed_revocation);
-        Ok(())
-    }
-        
     async fn save_validator_registration(
         &self,
         _entry: ValidatorRegistrationInfo,

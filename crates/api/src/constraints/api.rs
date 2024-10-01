@@ -181,7 +181,7 @@ where
 
         // Store the delegation in the database
         tokio::spawn( async move {
-            if let Err(err) = api.db.save_validator_delegation(signed_delegation).await {
+            if let Err(err) = api.auctioneer.save_validator_delegation(signed_delegation).await {
                 error!(
                     error = %err,
                     "Failed to save delegation",
@@ -247,7 +247,7 @@ where
 
         // Store the delegation in the database
         tokio::spawn( async move {
-            if let Err(err) = api.db.revoke_validator_delegation(signed_revocation).await {
+            if let Err(err) = api.auctioneer.revoke_validator_delegation(signed_revocation).await {
                 error!(
                     error = %err,
                     "Failed to do revocation",

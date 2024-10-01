@@ -21,21 +21,6 @@ use crate::{
 
 #[async_trait]
 pub trait DatabaseService: Send + Sync + Clone {
-    async fn get_validator_delegations(
-        &self,
-        pub_key: BlsPublicKey,
-    ) -> Result<Vec<BlsPublicKey>, DatabaseError>;
-    
-    async fn save_validator_delegation(
-        &self,
-        signed_delegation: SignedDelegation,
-    ) -> Result<(), DatabaseError>;
-
-    async fn revoke_validator_delegation(
-        &self,
-        signed_revocation: SignedRevocation,
-    ) -> Result<(), DatabaseError>;
-
     async fn save_validator_registration(
         &self,
         entry: ValidatorRegistrationInfo,

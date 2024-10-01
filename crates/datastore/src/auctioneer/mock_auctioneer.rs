@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 
 use helix_common::{
-    api::builder_api::TopBidUpdate, bid_submission::{
+    api::{builder_api::TopBidUpdate, constraints_api::{SignedDelegation, SignedRevocation}}, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
     }, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::{InclusionProofs, SignedConstraintsWithProofData}, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, BuilderInfo, ProposerInfo
 };
@@ -36,6 +36,27 @@ impl MockAuctioneer {
 
 #[async_trait]
 impl Auctioneer for MockAuctioneer {
+    async fn get_validator_delegations(
+        &self,
+        _pub_key: BlsPublicKey,
+    ) -> Result<Vec<SignedDelegation>, AuctioneerError> {
+        Ok(vec![])
+    }
+
+    async fn save_validator_delegation(
+        &self,
+        _signed_delegation: SignedDelegation,
+    ) -> Result<(), AuctioneerError> {
+        Ok(())
+    }
+
+    async fn revoke_validator_delegation(
+        &self,
+        _signed_revocation: SignedRevocation,
+    ) -> Result<(), AuctioneerError> {
+        Ok(())
+    }
+
     async fn save_constraints(
         &self,
         slot: u64,

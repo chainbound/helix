@@ -35,7 +35,7 @@ use helix_common::{
     }, chain_info::ChainInfo, proofs::{self, verify_multiproofs, ConstraintsWithProofData, InclusionProofs, SignedConstraints, SignedConstraintsWithProofData}, signing::RelaySigningContext, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, SignedBuilderBid, SubmissionTrace
 };
 use helix_database::{error::DatabaseError, DatabaseService};
-use helix_datastore::{types::SaveBidAndUpdateTopBidResponse, Auctioneer};
+use helix_datastore::{error::AuctioneerError, types::SaveBidAndUpdateTopBidResponse, Auctioneer};
 use helix_housekeeper::{ChainUpdate, PayloadAttributesUpdate, SlotUpdate};
 use helix_utils::{get_payload_attributes_key, has_reached_fork, try_decode_into};
 use serde::{de, Deserialize};
@@ -223,7 +223,7 @@ where
     /// This endpoint returns the active delegations for the validator scheduled to propose 
     /// at the provided `slot`. The delegations are returned as a list of BLS pubkeys.
     /// 
-    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#delegations>
+    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/relay#delegation>
     pub async fn delegations(
         Extension(api): Extension<Arc<BuilderApi<A, DB, S, G>>>,
         Query(slot): Query<SlotQuery>,
@@ -243,18 +243,18 @@ where
 
         let pubkey = duty.entry.message.public_key.clone();
 
-        match api.db.get_validator_delegations(pubkey).await {
+        match api.auctioneer.get_validator_delegations(pubkey).await {
             Ok(delegations) => Ok(Json(delegations)),
 
             Err(err) => {
                 match err {
-                    DatabaseError::ValidatorDelegationNotFound => {
+                    AuctioneerError::ValidatorDelegationNotFound => {
                         debug!("No delegations found for validator");
                         Ok(Json(vec![])) // Return an empty vector if no delegations found
                     }
                     _ => {
                         warn!(error=%err, "Failed to get delegations");
-                        Err(BuilderApiError::DatabaseError(err))
+                        Err(BuilderApiError::AuctioneerError(err))
                     }
                 }
             }
