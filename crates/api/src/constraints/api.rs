@@ -60,7 +60,7 @@ where
 
     /// Handles the submission of batch of signed constraints.
     /// 
-    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/builder#constraints>
+    /// Implements this API: <https://docs.boltprotocol.xyz/api/builder#constraints>
     pub async fn submit_constraints(
         Extension(api): Extension<Arc<ConstraintsApi<A, DB>>>, 
         req: Request<Body>,
@@ -138,7 +138,7 @@ where
 
     /// Handles delegating constraint submission rights to another BLS key.
     /// 
-    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/builder#delegate>
+    /// Implements this API: <https://docs.boltprotocol.xyz/api/builder#delegate>
     pub async fn delegate(
         Extension(api): Extension<Arc<ConstraintsApi<A, DB>>>,
         req: Request<Body>,
@@ -204,7 +204,7 @@ where
 
     /// Handles revoking constraint submission rights from a BLS key.
     /// 
-    /// Implements this API: <https://chainbound.github.io/bolt-docs/api/builder#revoke>
+    /// Implements this API: <https://docs.boltprotocol.xyz/api/builder#revoke>
     pub async fn revoke(
         Extension(api): Extension<Arc<ConstraintsApi<A, DB>>>,
         req: Request<Body>,

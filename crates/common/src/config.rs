@@ -249,23 +249,23 @@ pub enum Route {
     BuilderBidsReceived,
     ValidatorRegistration,
 
-    // Constraints API: Builder <https://chainbound.github.io/bolt-docs/api/builder>
-    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#constraints>
+    // Constraints API: Builder <https://docs.boltprotocol.xyz/api/builder>
+    /// Reference: <https://docs.boltprotocol.xyz/api/builder#constraints>
     SubmitBuilderConstraints,
-    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#delegate>
+    /// Reference: <https://docs.boltprotocol.xyz/api/builder#delegate>
     DelegateSubmissionRights,
-    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#revoke>
+    /// Reference: <https://docs.boltprotocol.xyz/api/builder#revoke>
     RevokeSubmissionRights,
-    /// Reference: <https://chainbound.github.io/bolt-docs/api/builder#get_header_with_proofs>
+    /// Reference: <https://docs.boltprotocol.xyz/api/builder#get_header_with_proofs>
     GetHeaderWithProofs,
 
-    // Constraints API: Relay <https://chainbound.github.io/bolt-docs/api/relay>
-    /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#constraints>
+    // Constraints API: Relay <https://docs.boltprotocol.xyz/api/relay>
+    /// Reference: <https://docs.boltprotocol.xyz/api/relay#constraints>
     GetBuilderConstraints,
-    /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#constraints_stream>
+    /// Reference: <https://docs.boltprotocol.xyz/api/relay#constraints_stream>
     GetBuilderConstraintsStream,
     GetBuilderDelegations,
-    /// Reference: <https://chainbound.github.io/bolt-docs/api/relay#blocks_with_proofs>
+    /// Reference: <https://docs.boltprotocol.xyz/api/relay#blocks_with_proofs>
     SubmitBlockWithProofs,
 }
 
