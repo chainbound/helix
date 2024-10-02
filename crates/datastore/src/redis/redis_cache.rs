@@ -549,10 +549,7 @@ impl Auctioneer for RedisCache {
             .await
             .map_err(AuctioneerError::RedisError)?;
 
-        match delegations {
-            Some(delegations) => Ok(delegations),
-            None => Err(AuctioneerError::ValidatorDelegationNotFound),
-        }
+        Ok(delegations.unwrap_or_default())
     }
 
     async fn save_validator_delegation(

@@ -247,16 +247,8 @@ where
             Ok(delegations) => Ok(Json(delegations)),
 
             Err(err) => {
-                match err {
-                    AuctioneerError::ValidatorDelegationNotFound => {
-                        debug!("No delegations found for validator");
-                        Ok(Json(vec![])) // Return an empty vector if no delegations found
-                    }
-                    _ => {
-                        warn!(error=%err, "Failed to get delegations");
-                        Err(BuilderApiError::AuctioneerError(err))
-                    }
-                }
+                warn!(error=%err, "Failed to get delegations");
+                Err(BuilderApiError::AuctioneerError(err))
             }
         }
     }

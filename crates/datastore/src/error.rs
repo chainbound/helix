@@ -47,10 +47,6 @@ pub enum AuctioneerError {
 
     #[error("ethereum consensus crypto error: {0}")]
     EthereumConsensusCryptoError(#[from] ethereum_consensus::crypto::Error),
-
-    #[error("Validator delegation not found")]
-    ValidatorDelegationNotFound,
-
 }
 
 impl IntoResponse for AuctioneerError {
@@ -88,9 +84,6 @@ impl IntoResponse for AuctioneerError {
             AuctioneerError::BuilderNotFound { pub_key } => {
                 (StatusCode::BAD_REQUEST, format!("Builder not found for public key: {pub_key:?}"))
                     .into_response()
-            }
-            AuctioneerError::ValidatorDelegationNotFound => {
-                (StatusCode::BAD_REQUEST, "Validator delegation not found".to_string()).into_response()
             }
             AuctioneerError::EthereumConsensusError(err) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Ethereum consensus error: {err:?}"))
