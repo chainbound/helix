@@ -1,7 +1,8 @@
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
-use ethereum_consensus::crypto::SecretKey;
+use ethereum_consensus::crypto::{PublicKey, SecretKey};
 use moka::sync::Cache;
+use reth_primitives::{hex::FromHex, Bytes, U256};
 use tokio::{
     sync::broadcast,
     time::{sleep, timeout},
@@ -19,10 +20,9 @@ use helix_beacon_client::{
     multi_beacon_client::MultiBeaconClient, BlockBroadcaster, MultiBeaconClientTrait,
 };
 use helix_common::{
-    chain_info::ChainInfo, signing::RelaySigningContext, BroadcasterConfig, NetworkConfig,
-    RelayConfig,
+    chain_info::ChainInfo, signing::RelaySigningContext, BroadcasterConfig, BuilderInfo, NetworkConfig, RelayConfig
 };
-use helix_database::{postgres::postgres_db_service::PostgresDatabaseService, DatabaseService};
+use helix_database::{postgres::postgres_db_service::PostgresDatabaseService, BuilderInfoDocument, DatabaseService};
 use helix_datastore::redis::redis_cache::RedisCache;
 use helix_housekeeper::{ChainEventUpdater, Housekeeper};
 
@@ -45,7 +45,18 @@ impl ApiService {
 
         let db = Arc::new(postgres_db);
 
-        let builder_infos = db.get_all_builder_infos().await.expect("failed to load builder infos");
+        let mut builder_infos = db.get_all_builder_infos().await.expect("failed to load builder infos");
+
+        builder_infos.push(BuilderInfoDocument {
+            pub_key: PublicKey::try_from(
+                Bytes::from_hex("0xaa1488eae4b06a1fff840a2b6db167afc520758dc2c8af0dfb57037954df3431b747e2f900fe8805f05d635e9a29717b").unwrap().as_ref()
+            ).expect("failed to convert to public key"),
+            builder_info: BuilderInfo {
+                collateral: U256::MAX / U256::from(4),
+                is_optimistic: true,
+                builder_id: Some("Bolt".to_string())
+            }
+        });
 
         let auctioneer = Arc::new(RedisCache::new(&config.redis.url, builder_infos).await.unwrap());
 
