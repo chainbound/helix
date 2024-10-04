@@ -40,6 +40,7 @@ impl InclusionProofs {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct BidWithProofs {
+    #[serde(flatten)]
     pub bid: SignedBuilderBid,
     pub proofs: Option<InclusionProofs>,
 }
