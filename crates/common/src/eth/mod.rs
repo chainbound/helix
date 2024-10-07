@@ -15,9 +15,14 @@ use ethereum_consensus::{
 };
 
 use helix_utils::signing::sign_builder_message;
+use reth_primitives::proofs;
+use serde::de;
 
-use crate::bid_submission::{
-    v2::header_submission::SignedHeaderSubmission, BidSubmission, SignedBidSubmission,
+use crate::{
+    bid_submission::{
+        v2::header_submission::SignedHeaderSubmission, BidSubmission, SignedBidSubmission,
+    },
+    proofs::InclusionProofs,
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -37,15 +42,120 @@ impl std::fmt::Display for BidRequest {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "version", content = "data")]
+/// A signed builder bid with optional inclusion proofs.
+///
+/// Deserialized from a JSON object of the following format:
+///
+/// ```json
+/// {
+///     "version": "deneb",
+///     "data": {
+///         "message": BuilderBid,
+///         "signature": Signature,
+///         "proofs": Option<InclusionProofs>
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone)]
 pub enum SignedBuilderBid {
-    #[serde(rename = "bellatrix")]
-    Bellatrix(bellatrix::SignedBuilderBid),
-    #[serde(rename = "capella")]
-    Capella(capella::SignedBuilderBid),
-    #[serde(rename = "deneb")]
-    Deneb(deneb::SignedBuilderBid),
+    Bellatrix(bellatrix::SignedBuilderBid, Option<InclusionProofs>),
+    Capella(capella::SignedBuilderBid, Option<InclusionProofs>),
+    Deneb(deneb::SignedBuilderBid, Option<InclusionProofs>),
+}
+
+impl<'de> serde::Deserialize<'de> for SignedBuilderBid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let data = value.get("data").ok_or_else(|| de::Error::custom("missing data"))?;
+        let version = value.get("version").ok_or_else(|| de::Error::custom("missing version"))?;
+
+        // deserialize proofs if they exist, from the "data" field
+        let proofs = data
+            .get("proofs")
+            .map(|proofs| {
+                <InclusionProofs as serde::Deserialize>::deserialize(proofs)
+                    .map_err(de::Error::custom)
+            })
+            .transpose()?;
+
+        // deserialize data into SignedBuilderBid based on its version
+        match version.as_str().ok_or_else(|| de::Error::custom("version is not a string"))? {
+            "bellatrix" => {
+                let bid = <bellatrix::SignedBuilderBid as serde::Deserialize>::deserialize(data)
+                    .map_err(de::Error::custom)?;
+                Ok(SignedBuilderBid::Bellatrix(bid, proofs))
+            }
+            "capella" => {
+                let bid = <capella::SignedBuilderBid as serde::Deserialize>::deserialize(data)
+                    .map_err(de::Error::custom)?;
+                Ok(SignedBuilderBid::Capella(bid, proofs))
+            }
+            "deneb" => {
+                let bid = <deneb::SignedBuilderBid as serde::Deserialize>::deserialize(data)
+                    .map_err(de::Error::custom)?;
+                Ok(SignedBuilderBid::Deneb(bid, proofs))
+            }
+            _ => Err(de::Error::custom("unknown version")),
+        }
+    }
+}
+
+impl serde::Serialize for SignedBuilderBid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Bellatrix(bid, proofs) => {
+                let mut map = serde_json::Map::new();
+                map.insert("version".to_string(), "bellatrix".into());
+
+                let mut data_map = serde_json::Map::new();
+                data_map.insert("message".to_string(), serde_json::to_value(&bid.message).unwrap());
+                data_map
+                    .insert("signature".to_string(), serde_json::to_value(&bid.signature).unwrap());
+                if let Some(proofs) = proofs {
+                    data_map.insert("proofs".to_string(), serde_json::to_value(proofs).unwrap());
+                }
+
+                map.insert("data".to_string(), serde_json::to_value(data_map).unwrap());
+                map.serialize(serializer)
+            }
+            Self::Capella(bid, proofs) => {
+                let mut map = serde_json::Map::new();
+                map.insert("version".to_string(), "capella".into());
+
+                let mut data_map = serde_json::Map::new();
+                data_map.insert("message".to_string(), serde_json::to_value(&bid.message).unwrap());
+                data_map
+                    .insert("signature".to_string(), serde_json::to_value(&bid.signature).unwrap());
+                if let Some(proofs) = proofs {
+                    data_map.insert("proofs".to_string(), serde_json::to_value(proofs).unwrap());
+                }
+
+                map.insert("data".to_string(), serde_json::to_value(data_map).unwrap());
+                map.serialize(serializer)
+            }
+            Self::Deneb(bid, proofs) => {
+                let mut map = serde_json::Map::new();
+                map.insert("version".to_string(), "deneb".into());
+
+                let mut data_map = serde_json::Map::new();
+                data_map.insert("message".to_string(), serde_json::to_value(&bid.message).unwrap());
+                data_map
+                    .insert("signature".to_string(), serde_json::to_value(&bid.signature).unwrap());
+                if let Some(proofs) = proofs {
+                    data_map.insert("proofs".to_string(), serde_json::to_value(proofs).unwrap());
+                }
+
+                map.insert("data".to_string(), serde_json::to_value(data_map).unwrap());
+                map.serialize(serializer)
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for SignedBuilderBid {
@@ -59,6 +169,7 @@ impl std::fmt::Display for SignedBuilderBid {
 impl SignedBuilderBid {
     pub fn from_submission(
         submission: &mut SignedBidSubmission,
+        proofs: Option<InclusionProofs>,
         public_key: BlsPublicKey,
         signing_key: &SecretKey,
         context: &Context,
@@ -70,14 +181,14 @@ impl SignedBuilderBid {
                     bellatrix::BuilderBid { header, value: submission.value(), public_key };
                 let signature = sign_builder_message(&mut message, signing_key, context)?;
 
-                Ok(Self::Bellatrix(bellatrix::SignedBuilderBid { message, signature }))
+                Ok(Self::Bellatrix(bellatrix::SignedBuilderBid { message, signature }, proofs))
             }
             ExecutionPayload::Capella(payload) => {
                 let header = capella::ExecutionPayloadHeader::try_from(payload)?;
                 let mut message =
                     capella::BuilderBid { header, value: submission.value(), public_key };
                 let signature = sign_builder_message(&mut message, signing_key, context)?;
-                Ok(Self::Capella(capella::SignedBuilderBid { message, signature }))
+                Ok(Self::Capella(capella::SignedBuilderBid { message, signature }, proofs))
             }
             ExecutionPayload::Deneb(payload) => {
                 let header = deneb::ExecutionPayloadHeader::try_from(payload)?;
@@ -91,7 +202,7 @@ impl SignedBuilderBid {
                         };
                         let signature = sign_builder_message(&mut message, signing_key, context)?;
 
-                        Ok(Self::Deneb(deneb::SignedBuilderBid { message, signature }))
+                        Ok(Self::Deneb(deneb::SignedBuilderBid { message, signature }, proofs))
                     }
                     None => Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
@@ -105,6 +216,7 @@ impl SignedBuilderBid {
 
     pub fn from_header_submission(
         submission: &SignedHeaderSubmission,
+        proofs: Option<InclusionProofs>,
         public_key: BlsPublicKey,
         signing_key: &SecretKey,
         context: &Context,
@@ -118,7 +230,7 @@ impl SignedBuilderBid {
                 };
                 let signature = sign_builder_message(&mut message, signing_key, context)?;
 
-                Ok(Self::Bellatrix(bellatrix::SignedBuilderBid { message, signature }))
+                Ok(Self::Bellatrix(bellatrix::SignedBuilderBid { message, signature }, proofs))
             }
             ExecutionPayloadHeader::Capella(header) => {
                 let mut message = capella::BuilderBid {
@@ -127,7 +239,7 @@ impl SignedBuilderBid {
                     public_key,
                 };
                 let signature = sign_builder_message(&mut message, signing_key, context)?;
-                Ok(Self::Capella(capella::SignedBuilderBid { message, signature }))
+                Ok(Self::Capella(capella::SignedBuilderBid { message, signature }, proofs))
             }
             ExecutionPayloadHeader::Deneb(header) => match submission.commitments() {
                 Some(commitments) => {
@@ -139,7 +251,7 @@ impl SignedBuilderBid {
                     };
                     let signature = sign_builder_message(&mut message, signing_key, context)?;
 
-                    Ok(Self::Deneb(deneb::SignedBuilderBid { message, signature }))
+                    Ok(Self::Deneb(deneb::SignedBuilderBid { message, signature }, proofs))
                 }
                 None => Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
@@ -152,41 +264,57 @@ impl SignedBuilderBid {
 
     pub fn value(&self) -> U256 {
         match self {
-            Self::Bellatrix(bid) => bid.message.value,
-            Self::Capella(bid) => bid.message.value,
-            Self::Deneb(bid) => bid.message.value,
+            Self::Bellatrix(bid, _) => bid.message.value,
+            Self::Capella(bid, _) => bid.message.value,
+            Self::Deneb(bid, _) => bid.message.value,
         }
     }
 
     pub fn public_key(&self) -> &BlsPublicKey {
         match self {
-            Self::Bellatrix(bid) => &bid.message.public_key,
-            Self::Capella(bid) => &bid.message.public_key,
-            Self::Deneb(bid) => &bid.message.public_key,
+            Self::Bellatrix(bid, _) => &bid.message.public_key,
+            Self::Capella(bid, _) => &bid.message.public_key,
+            Self::Deneb(bid, _) => &bid.message.public_key,
         }
     }
 
     pub fn block_hash(&self) -> &Hash32 {
         match self {
-            Self::Bellatrix(bid) => &bid.message.header.block_hash,
-            Self::Capella(bid) => &bid.message.header.block_hash,
-            Self::Deneb(bid) => &bid.message.header.block_hash,
+            Self::Bellatrix(bid, _) => &bid.message.header.block_hash,
+            Self::Capella(bid, _) => &bid.message.header.block_hash,
+            Self::Deneb(bid, _) => &bid.message.header.block_hash,
         }
     }
 
     pub fn parent_hash(&self) -> &Hash32 {
         match self {
-            Self::Bellatrix(bid) => &bid.message.header.parent_hash,
-            Self::Capella(bid) => &bid.message.header.parent_hash,
-            Self::Deneb(bid) => &bid.message.header.parent_hash,
+            Self::Bellatrix(bid, _) => &bid.message.header.parent_hash,
+            Self::Capella(bid, _) => &bid.message.header.parent_hash,
+            Self::Deneb(bid, _) => &bid.message.header.parent_hash,
         }
     }
 
     pub fn logs_bloom(&self) -> &ByteVector<256> {
         match self {
-            Self::Bellatrix(bid) => &bid.message.header.logs_bloom,
-            Self::Capella(bid) => &bid.message.header.logs_bloom,
-            Self::Deneb(bid) => &bid.message.header.logs_bloom,
+            Self::Bellatrix(bid, _) => &bid.message.header.logs_bloom,
+            Self::Capella(bid, _) => &bid.message.header.logs_bloom,
+            Self::Deneb(bid, _) => &bid.message.header.logs_bloom,
+        }
+    }
+
+    pub fn proofs(&self) -> &Option<InclusionProofs> {
+        match self {
+            Self::Bellatrix(_, proofs) => proofs,
+            Self::Capella(_, proofs) => proofs,
+            Self::Deneb(_, proofs) => proofs,
+        }
+    }
+
+    pub fn set_inclusion_proofs(&mut self, proofs: InclusionProofs) {
+        match self {
+            Self::Bellatrix(_, proofs_opt) => *proofs_opt = Some(proofs),
+            Self::Capella(_, proofs_opt) => *proofs_opt = Some(proofs),
+            Self::Deneb(_, proofs_opt) => *proofs_opt = Some(proofs),
         }
     }
 }
@@ -222,7 +350,7 @@ mod tests {
             message: Default::default(),
             signature: Default::default(),
         };
-        let x = SignedBuilderBid::Capella(x);
+        let x = SignedBuilderBid::Capella(x, None);
 
         let x = serde_json::to_vec(&x).unwrap();
         println!("{:?}", x);
@@ -399,14 +527,17 @@ mod tests {
             withdrawals_root: Default::default(),
         };
 
-        let builder_bid = SignedBuilderBid::Capella(capella::SignedBuilderBid {
-            message: capella::BuilderBid {
-                header,
-                value: U256::from(111111),
-                public_key: Default::default(),
+        let builder_bid = SignedBuilderBid::Capella(
+            capella::SignedBuilderBid {
+                message: capella::BuilderBid {
+                    header,
+                    value: U256::from(111111),
+                    public_key: Default::default(),
+                },
+                signature: Default::default(),
             },
-            signature: Default::default(),
-        });
+            None,
+        );
 
         let serialized = serde_json::to_vec(&builder_bid);
         assert!(serialized.is_ok());

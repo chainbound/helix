@@ -40,13 +40,12 @@ use helix_common::{
         proposer_api::{GetPayloadResponse, ValidatorRegistrationInfo},
     },
     chain_info::{ChainInfo, Network},
+    proofs::InclusionProofs,
     signed_proposal::VersionedSignedProposal,
     try_execution_header_from_payload, validator_preferences,
     versioned_payload::PayloadAndBlobs,
     BidRequest, Filtering, GetHeaderTrace, GetPayloadTrace, RegisterValidatorsTrace,
     ValidatorPreferences,
-    proofs::BidWithProofs,
-    proofs::InclusionProofs,
 };
 use helix_database::DatabaseService;
 use helix_datastore::{error::AuctioneerError, Auctioneer};
@@ -441,16 +440,17 @@ where
         }
     }
 
-    /// Retrieves the best bid header (with inclusion proof) for the specified slot, parent hash, and public key.
-    /// 
+    /// Retrieves the best bid header (with inclusion proof) for the specified slot, parent hash,
+    /// and public key.
+    ///
     /// This function accepts a slot number, parent hash and public_key.
     /// 1. Validates that the request's slot is not older than the head slot.
     /// 2. Validates the request timestamp to ensure it's not too late.
     /// 3. Fetches the best bid for the given parameters from the auctioneer.
     /// 4. Fetches the inclusion proof for the best bid.
-    /// 
+    ///
     /// The function returns a JSON response containing the best bid and inclusion proofs if found.
-    /// 
+    ///
     /// Implements this API: <https://docs.boltprotocol.xyz/api/builder#get_header_with_proofs>
     pub async fn get_header_with_proofs(
         Extension(proposer_api): Extension<Arc<ProposerApi<A, DB, M, G>>>,
@@ -496,7 +496,7 @@ where
         info!(request_id = %request_id, trace = ?trace, "best bid fetched");
 
         match get_best_bid_res {
-            Ok(Some(bid)) => {
+            Ok(Some(mut bid)) => {
                 if bid.value() == U256::ZERO {
                     warn!(request_id = %request_id, "best bid value is 0");
                     return Err(ProposerApiError::BidValueZero);
@@ -505,11 +505,12 @@ where
                 // Get inclusion proofs
                 let proofs = proposer_api
                     .get_inclusion_proof(
-                        slot, 
-                        &bid_request.public_key, 
-                        bid.block_hash(), 
-                        &request_id)
-                        .await;
+                        slot,
+                        &bid_request.public_key,
+                        bid.block_hash(),
+                        &request_id,
+                    )
+                    .await;
 
                 info!(
                     request_id = %request_id,
@@ -517,7 +518,7 @@ where
                     block_hash = ?bid.block_hash(),
                     "delivering bid with proofs",
                 );
-    
+
                 // Save trace to DB
                 proposer_api
                     .save_get_header_call(
@@ -529,12 +530,14 @@ where
                         request_id,
                     )
                     .await;
-    
+
+                // Attach the proofs to the bid before sending it back
+                if let Some(proofs) = proofs {
+                    bid.set_inclusion_proofs(proofs);
+                }
+
                 // Return header with proofs
-                Ok(axum::Json(BidWithProofs {
-                    bid,
-                    proofs,
-                }))
+                Ok(axum::Json(bid))
             }
             Ok(None) => {
                 warn!(request_id = %request_id, "no bid found");
@@ -955,8 +958,8 @@ where
     /// - Only allows requests for the current slot until a certain cutoff time.
     fn validate_bid_request_time(&self, bid_request: &BidRequest) -> Result<(), ProposerApiError> {
         let curr_timestamp_ms = get_millis_timestamp()? as i64;
-        let slot_start_timestamp = self.chain_info.genesis_time_in_secs
-            + (bid_request.slot * self.chain_info.seconds_per_slot);
+        let slot_start_timestamp = self.chain_info.genesis_time_in_secs +
+            (bid_request.slot * self.chain_info.seconds_per_slot);
         let ms_into_slot = curr_timestamp_ms.saturating_sub((slot_start_timestamp * 1000) as i64);
 
         if ms_into_slot > GET_HEADER_REQUEST_CUTOFF_MS {
@@ -1165,10 +1168,8 @@ where
         bid_block_hash: &ByteVector<32>,
         request_id: &Uuid,
     ) -> Option<InclusionProofs> {
-        let inclusion_proof = self
-            .auctioneer
-            .get_inclusion_proof(slot, public_key, bid_block_hash)
-            .await;
+        let inclusion_proof =
+            self.auctioneer.get_inclusion_proof(slot, public_key, bid_block_hash).await;
         match inclusion_proof {
             Ok(Some(proof)) => Some(proof),
             Ok(None) => {

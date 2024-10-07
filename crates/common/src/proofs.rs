@@ -1,16 +1,21 @@
 use ethereum_consensus::{
-    bellatrix::presets::minimal::Transaction, deneb::minimal::MAX_TRANSACTIONS_PER_PAYLOAD,
-    phase0::Bytes32, primitives::{BlsPublicKey, BlsSignature}, ssz::prelude::*
+    bellatrix::presets::minimal::Transaction,
+    deneb::minimal::MAX_TRANSACTIONS_PER_PAYLOAD,
+    phase0::Bytes32,
+    primitives::{BlsPublicKey, BlsSignature},
+    ssz::prelude::*,
 };
-use reth_primitives::{TxHash, keccak256, B256};
-use tree_hash::Hash256;
+use reth_primitives::{keccak256, TxHash, B256};
 use sha2::{Digest, Sha256};
+use tree_hash::Hash256;
 
 // Import the new version of the `ssz-rs` crate for multiproof verification.
 use ::ssz_rs as ssz;
 
-use crate::api::constraints_api::{SignableBLS, MAX_CONSTRAINTS_PER_SLOT};
-use crate::eth::SignedBuilderBid;
+use crate::{
+    api::constraints_api::{SignableBLS, MAX_CONSTRAINTS_PER_SLOT},
+    eth::SignedBuilderBid,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProofError {
@@ -36,13 +41,6 @@ impl InclusionProofs {
     pub fn total_leaves(&self) -> usize {
         self.transaction_hashes.len()
     }
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct BidWithProofs {
-    #[serde(flatten)]
-    pub bid: SignedBuilderBid,
-    pub proofs: Option<InclusionProofs>,
 }
 
 pub type HashTreeRoot = tree_hash::Hash256;
@@ -164,8 +162,14 @@ pub fn verify_multiproofs(
 
     // Conversions to the correct types (and versions of the same type)
     let leaves = leaves.into_iter().map(|h| h.as_slice().try_into().unwrap()).collect::<Vec<_>>();
-    let merkle_proofs = proofs.merkle_hashes.to_vec().iter().map(|h| h.as_slice().try_into().unwrap()).collect::<Vec<_>>();
-    let indexes = proofs.generalized_indexes.to_vec().iter().map(|h| *h as usize).collect::<Vec<_>>();
+    let merkle_proofs = proofs
+        .merkle_hashes
+        .to_vec()
+        .iter()
+        .map(|h| h.as_slice().try_into().unwrap())
+        .collect::<Vec<_>>();
+    let indexes =
+        proofs.generalized_indexes.to_vec().iter().map(|h| *h as usize).collect::<Vec<_>>();
     let root = root.as_slice().try_into().expect("Invalid root length");
 
     // Verify the Merkle multiproof against the root

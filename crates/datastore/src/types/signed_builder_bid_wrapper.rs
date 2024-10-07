@@ -10,23 +10,23 @@ pub struct SignedBuilderBidWrapper {
 }
 
 impl SignedBuilderBidWrapper {
-    pub fn new(bid: SignedBuilderBid, slot: u64, builder_pub_key: BlsPublicKey, received_at: u128) -> Self {
+    pub fn new(
+        bid: SignedBuilderBid,
+        slot: u64,
+        builder_pub_key: BlsPublicKey,
+        received_at: u128,
+    ) -> Self {
         // convert received_at to millis, from nanos.
         let received_at = received_at / 1_000_000;
 
-        Self {
-            bid,
-            slot,
-            builder_pub_key,
-            received_at_ms: received_at as u64,
-        }
+        Self { bid, slot, builder_pub_key, received_at_ms: received_at as u64 }
     }
 }
 
 impl Into<TopBidUpdate> for SignedBuilderBidWrapper {
     fn into(self) -> TopBidUpdate {
         match self.bid {
-            SignedBuilderBid::Bellatrix(bid) => TopBidUpdate {
+            SignedBuilderBid::Bellatrix(bid, _) => TopBidUpdate {
                 timestamp: self.received_at_ms,
                 slot: self.slot,
                 block_number: bid.message.header.block_number,
@@ -36,7 +36,7 @@ impl Into<TopBidUpdate> for SignedBuilderBidWrapper {
                 fee_recipient: bid.message.header.fee_recipient,
                 value: bid.message.value,
             },
-            SignedBuilderBid::Capella(bid) => TopBidUpdate {
+            SignedBuilderBid::Capella(bid, _) => TopBidUpdate {
                 timestamp: self.received_at_ms,
                 slot: self.slot,
                 block_number: bid.message.header.block_number,
@@ -46,7 +46,7 @@ impl Into<TopBidUpdate> for SignedBuilderBidWrapper {
                 fee_recipient: bid.message.header.fee_recipient,
                 value: bid.message.value,
             },
-            SignedBuilderBid::Deneb(bid) => TopBidUpdate {
+            SignedBuilderBid::Deneb(bid, _) => TopBidUpdate {
                 timestamp: self.received_at_ms,
                 slot: self.slot,
                 block_number: bid.message.header.block_number,
