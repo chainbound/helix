@@ -35,17 +35,6 @@ pub fn verify_signed_consensus_message<T: Merkleized>(
     Ok(())
 }
 
-pub fn verify_signed_constraint_message<T: Merkleized>(
-    message: &mut T,
-    signature: &BlsSignature,
-    public_key: &BlsPublicKey,
-    context: &Context,
-) -> Result<(), Error> {
-    let domain = compute_builder_domain(context)?;
-    verify_signed_data(message, signature, public_key, domain)?;
-    Ok(())
-}
-
 pub fn verify_signed_builder_message<T: Merkleized>(
     message: &mut T,
     signature: &BlsSignature,
@@ -140,9 +129,4 @@ pub fn compute_builder_signing_root<T: Merkleized>(
 pub fn compute_builder_domain(context: &Context) -> Result<Domain, Error> {
     let domain_type = DomainType::ApplicationBuilder;
     compute_domain(domain_type, None, None, context)
-}
-
-pub fn compute_constraint_domain(context: &Context) -> Result<Domain, Error> {
-    let domain_type = COMMIT_BOOST_DOMAIN;
-    compute_domain(domain_type, None, None, context)    
 }

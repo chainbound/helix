@@ -6,6 +6,7 @@ use helix_common::{api::constraints_api::{SignableBLS, SignedDelegation, SignedR
 use helix_database::DatabaseService;
 use helix_datastore::Auctioneer;
 use ethereum_consensus::signing::verify_signature;
+use helix_utils::signing::{verify_signed_message, COMMIT_BOOST_DOMAIN};
 use tracing::{info, warn, error};
 use uuid::Uuid;
 use std::{sync::Arc, time::{SystemTime, UNIX_EPOCH}};
@@ -98,12 +99,14 @@ where
                 return Err(ConstraintsApiError::MaxConstraintsReached);
             }
 
-            // Verify the signature.
-            if let Err(err) = verify_signature(
-                &pubkey,
-                &message.digest(),
-                &constraint.signature,
-            ) {
+            // Verify the delegation signature
+        if let Err(_) = verify_signed_message(
+            &mut message.digest(),
+            &constraint.signature,
+            &pubkey,
+            COMMIT_BOOST_DOMAIN,
+            &api.chain_info.context,
+        ) {
                 return Err(ConstraintsApiError::InvalidSignature);
             };
 
@@ -170,10 +173,12 @@ where
         let message = &mut signed_delegation.message;
         
         // Verify the delegation signature
-        if let Err(_) = verify_signature(
-            &pubkey,
-            &message.digest(),
+        if let Err(_) = verify_signed_message(
+            &mut message.digest(),
             &signed_delegation.signature,
+            &pubkey,
+            COMMIT_BOOST_DOMAIN,
+            &api.chain_info.context,
         ) {
             return Err(ConstraintsApiError::InvalidSignature);
         };
@@ -235,11 +240,13 @@ where
         let pubkey = signed_revocation.message.validator_pubkey.clone();
         let message = &mut signed_revocation.message;
         
-        // Verify the revocation signature
-        if let Err(e) = verify_signature(
-            &pubkey,
-            &message.digest(),
+        // Verify the delegation signature
+        if let Err(_) = verify_signed_message(
+            &mut message.digest(),
             &signed_revocation.signature,
+            &pubkey,
+            COMMIT_BOOST_DOMAIN,
+            &api.chain_info.context,
         ) {
             return Err(ConstraintsApiError::InvalidSignature);
         };
