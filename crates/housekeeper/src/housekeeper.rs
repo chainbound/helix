@@ -33,7 +33,7 @@ const TRUSTED_PROPOSERS_UPDATE_FREQ: u64 = 5;
 // Constants for known validators refresh logic.
 const MIN_SLOTS_BETWEEN_UPDATES: u64 = 6;
 const MAX_SLOTS_BEFORE_FORCED_UPDATE: u64 = 32;
-pub(crate) const SLEEP_DURATION_BEFORE_REFRESHING_VALIDATORS: Duration = Duration::from_secs(6);
+pub(crate) const SLEEP_DURATION_BEFORE_REFRESHING_VALIDATORS: Duration = Duration::from_millis(200);
 
 // Max time between header and payload for OptimsiticV2 submissions
 const MAX_DELAY_BETWEEN_V2_SUBMISSIONS_MS: u64 = 2_000;
