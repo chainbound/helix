@@ -1884,7 +1884,7 @@ fn sanity_check_block_submission(
     payload_attributes: &PayloadAttributesUpdate,
     chain_info: &ChainInfo,
 ) -> Result<(), BuilderApiError> {
-    let expected_timestamp = chain_info.genesis_time_in_secs + (bid_trace.slot * SECONDS_PER_SLOT);
+    let expected_timestamp = chain_info.genesis_time_in_secs + (bid_trace.slot * chain_info.seconds_per_slot);
     if payload.timestamp() != expected_timestamp {
         return Err(BuilderApiError::IncorrectTimestamp {
             got: payload.timestamp(),

@@ -1,17 +1,23 @@
+use std::collections::HashMap;
 use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use std::collections::HashMap;
 
 use ethereum_consensus::{
-    configs::{goerli::CAPELLA_FORK_EPOCH, mainnet::SECONDS_PER_SLOT}, deneb::Withdrawal, primitives::Bytes32
+    configs::{goerli::CAPELLA_FORK_EPOCH, mainnet::SECONDS_PER_SLOT},
+    deneb::Withdrawal,
+    primitives::Bytes32,
 };
 use tokio::sync::{broadcast, mpsc};
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 use helix_beacon_client::types::{HeadEventData, PayloadAttributes, PayloadAttributesEvent};
-use helix_common::{api::builder_api::BuilderGetValidatorsResponseEntry, bellatrix::{List, Merkleized, Node}, chain_info::ChainInfo};
+use helix_common::{
+    api::builder_api::BuilderGetValidatorsResponseEntry,
+    bellatrix::{List, Merkleized, Node},
+    chain_info::ChainInfo,
+};
 use helix_database::DatabaseService;
 use helix_utils::{calculate_withdrawals_root, get_payload_attributes_key, has_reached_fork};
 
@@ -130,8 +136,8 @@ impl<D: DatabaseService> ChainEventUpdater<D> {
 
         // Validate this isn't a faulty head slot
         if let Ok(current_timestamp) = SystemTime::now().duration_since(UNIX_EPOCH) {
-            let slot_timestamp =
-                self.chain_info.genesis_time_in_secs + (event.slot * SECONDS_PER_SLOT);
+            let slot_timestamp = self.chain_info.genesis_time_in_secs
+                + (event.slot * self.chain_info.seconds_per_slot);
             if slot_timestamp > current_timestamp.as_secs() + MAX_DISTANCE_FOR_FUTURE_SLOT {
                 warn!(head_slot = event.slot, "head event slot is too far in the future",);
                 return;
@@ -160,6 +166,10 @@ impl<D: DatabaseService> ChainEventUpdater<D> {
             None
         };
 
+        if event.slot % 8 == 0 {
+            trace!(event.slot, ?new_duties, "event.slot % 8 == 0, fetched new_duties");
+        }
+
         // Update local cache if new duties were fetched.
         if let Some(new_duties) = &new_duties {
             self.proposer_duties = new_duties.clone();
@@ -168,6 +178,9 @@ impl<D: DatabaseService> ChainEventUpdater<D> {
         // Get the next proposer duty for the new slot.
         let next_duty =
             self.proposer_duties.iter().find(|duty| duty.slot == event.slot + 1).cloned();
+
+        let len = self.proposer_duties.len();
+        trace!(?next_duty, proposer_duties_len = len, "Sending slot update to subscribers");
 
         let update =
             ChainUpdate::SlotUpdate(SlotUpdate { slot: event.slot, new_duties, next_duty });
@@ -182,7 +195,8 @@ impl<D: DatabaseService> ChainEventUpdater<D> {
         }
 
         // Discard payload attributes if already known
-        let payload_attributes_key = get_payload_attributes_key(&event.data.parent_block_hash, event.data.proposal_slot);
+        let payload_attributes_key =
+            get_payload_attributes_key(&event.data.parent_block_hash, event.data.proposal_slot);
         if self.known_payload_attributes.contains_key(&payload_attributes_key) {
             return;
         }
@@ -202,7 +216,8 @@ impl<D: DatabaseService> ChainEventUpdater<D> {
 
         let mut withdrawals_root = None;
         if has_reached_fork(event.data.proposal_slot, CAPELLA_FORK_EPOCH) {
-            let mut withdrawals_list : List<Withdrawal, 16> = event.data.payload_attributes.withdrawals.clone().try_into().unwrap();
+            let mut withdrawals_list: List<Withdrawal, 16> =
+                event.data.payload_attributes.withdrawals.clone().try_into().unwrap();
             withdrawals_root = withdrawals_list.hash_tree_root().ok();
         }
 

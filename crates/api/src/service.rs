@@ -1,7 +1,8 @@
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
-use ethereum_consensus::crypto::SecretKey;
+use ethereum_consensus::crypto::{PublicKey, SecretKey};
 use moka::sync::Cache;
+use reth_primitives::{hex::{self, FromHex}, Bytes, U256};
 use tokio::{
     sync::broadcast,
     time::{sleep, timeout},
@@ -9,16 +10,22 @@ use tokio::{
 use tracing::{error, info};
 
 use crate::{
-    builder::optimistic_simulator::OptimisticSimulator, gossiper::grpc_gossiper::GrpcGossiperClientManager, relay_data::{BidsCache, DeliveredPayloadsCache}, router::{build_router, BuilderApiProd, DataApiProd, ProposerApiProd}
+    builder::optimistic_simulator::OptimisticSimulator,
+    gossiper::grpc_gossiper::GrpcGossiperClientManager,
+    relay_data::{BidsCache, DeliveredPayloadsCache},
+    router::{build_router, BuilderApiProd, DataApiProd, ProposerApiProd},
 };
 use helix_beacon_client::{
     beacon_client::BeaconClient, fiber_broadcaster::FiberBroadcaster,
     multi_beacon_client::MultiBeaconClient, BlockBroadcaster, MultiBeaconClientTrait,
 };
 use helix_common::{
-    chain_info::ChainInfo, signing::RelaySigningContext, BroadcasterConfig, NetworkConfig, RelayConfig
+    chain_info::ChainInfo, signing::RelaySigningContext, BroadcasterConfig, BuilderInfo,
+    NetworkConfig, RelayConfig,
 };
-use helix_database::{postgres::postgres_db_service::PostgresDatabaseService, DatabaseService};
+use helix_database::{
+    postgres::postgres_db_service::PostgresDatabaseService, BuilderInfoDocument, DatabaseService,
+};
 use helix_datastore::redis::redis_cache::RedisCache;
 use helix_housekeeper::{ChainEventUpdater, Housekeeper};
 
@@ -36,13 +43,26 @@ impl ApiService {
         let postgres_db = PostgresDatabaseService::from_relay_config(&config).unwrap();
         postgres_db.run_migrations().await;
         postgres_db.init_region(&config).await;
+        postgres_db.store_builders_info(&config.builders).await.expect("failed to store builders info from config");
         postgres_db.load_known_validators().await;
         postgres_db.start_registration_processor().await;
 
         let db = Arc::new(postgres_db);
 
-        let builder_infos = db.get_all_builder_infos().await.expect("failed to load builder infos");
-        
+        let mut builder_infos =
+            db.get_all_builder_infos().await.expect("failed to load builder infos");
+
+        builder_infos.push(BuilderInfoDocument {
+            pub_key: PublicKey::try_from(
+                Bytes::from_hex("0xaa1488eae4b06a1fff840a2b6db167afc520758dc2c8af0dfb57037954df3431b747e2f900fe8805f05d635e9a29717b").unwrap().as_ref()
+            ).expect("failed to convert to public key"),
+            builder_info: BuilderInfo {
+                collateral: U256::MAX / U256::from(4),
+                is_optimistic: true,
+                builder_id: Some("Bolt".to_string())
+            }
+        });
+
         let auctioneer = Arc::new(RedisCache::new(&config.redis.url, builder_infos).await.unwrap());
 
         let auctioneer_clone = auctioneer.clone();
@@ -76,18 +96,26 @@ impl ApiService {
             NetworkConfig::Sepolia => ChainInfo::for_sepolia(),
             NetworkConfig::Holesky => ChainInfo::for_holesky(),
             NetworkConfig::Custom { ref dir_path, ref genesis_validator_root, genesis_time } => {
-                match ChainInfo::for_custom(dir_path.clone(), genesis_validator_root.clone(), genesis_time) {
+                match ChainInfo::for_custom(
+                    dir_path.clone(),
+                    genesis_validator_root.clone(),
+                    genesis_time,
+                ) {
                     Ok(chain_info) => chain_info,
                     Err(err) => {
                         error!("Failed to load custom chain info: {:?}", err);
                         std::process::exit(1);
                     }
                 }
-            },
+            }
         });
 
-        let housekeeper =
-            Housekeeper::new(db.clone(), multi_beacon_client.clone(), auctioneer.clone(), config.clone());
+        let housekeeper = Housekeeper::new(
+            db.clone(),
+            multi_beacon_client.clone(),
+            auctioneer.clone(),
+            config.clone(),
+        );
         let mut housekeeper_head_events = head_event_receiver.resubscribe();
         tokio::spawn(async move {
             loop {
@@ -176,20 +204,29 @@ impl ApiService {
             Cache::builder()
                 .time_to_live(Duration::from_secs(10))
                 .time_to_idle(Duration::from_secs(5))
-                .build()
+                .build(),
         );
 
         let delivered_payloads_cache: Arc<DeliveredPayloadsCache> = Arc::new(
             Cache::builder()
                 .time_to_live(Duration::from_secs(10))
                 .time_to_idle(Duration::from_secs(5))
-                .build()
+                .build(),
         );
 
-        let router = build_router(&mut config.router_config, builder_api, proposer_api, data_api, bids_cache, delivered_payloads_cache);
+        let router = build_router(
+            &mut config.router_config,
+            builder_api,
+            proposer_api,
+            data_api,
+            bids_cache,
+            delivered_payloads_cache,
+        );
 
         let listener = tokio::net::TcpListener::bind("0.0.0.0:4040").await.unwrap();
-        match axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await {
+        match axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>())
+            .await
+        {
             Ok(_) => info!("Server exited successfully"),
             Err(e) => error!("Server exited with error: {e}"),
         }

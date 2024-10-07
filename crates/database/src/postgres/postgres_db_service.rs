@@ -614,7 +614,7 @@ impl DatabaseService for PostgresDatabaseService {
 
         // Join the values clauses and append them to the SQL statement
         sql.push_str(&values_clauses.join(", "));
-        sql.push_str(" ON CONFLICT (public_key) DO NOTHING");
+        sql.push_str(" ON CONFLICT (slot_number) DO NOTHING");
 
         // Execute the query
         transaction.execute(&sql, &params[..]).await?;
@@ -1068,6 +1068,19 @@ impl DatabaseService for PostgresDatabaseService {
                 ],
             )
             .await?;
+
+        Ok(())
+    }
+
+    async fn store_builders_info(
+        &self,
+        builders: &Vec<BuilderInfoDocument>,
+    ) -> Result<(), DatabaseError> {
+        // PERF: this is not the most performant approach but it is expected
+        // to add just a few builders only at startup
+        for builder in builders {
+            self.store_builder_info(&builder.pub_key, builder.builder_info.clone()).await?;
+        }
 
         Ok(())
     }
