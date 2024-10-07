@@ -15,7 +15,6 @@ use ethereum_consensus::{
 };
 
 use helix_utils::signing::sign_builder_message;
-use reth_primitives::proofs;
 use serde::de;
 
 use crate::{
@@ -299,6 +298,14 @@ impl SignedBuilderBid {
             Self::Bellatrix(bid, _) => &bid.message.header.logs_bloom,
             Self::Capella(bid, _) => &bid.message.header.logs_bloom,
             Self::Deneb(bid, _) => &bid.message.header.logs_bloom,
+        }
+    }
+
+    pub fn version(&self) -> &str {
+        match self {
+            Self::Bellatrix(_, _) => "bellatrix",
+            Self::Capella(_, _) => "capella",
+            Self::Deneb(_, _) => "deneb",
         }
     }
 
@@ -633,5 +640,53 @@ mod tests {
         ];
         let res = serde_json::from_slice::<SignedBuilderBid>(&json_bytes);
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_deserialize_json_signed_builder_bid_with_proofs() {
+        let json = serde_json::json!({
+            "version": "deneb",
+            "data": {
+                "message": {
+                    "header": {
+                        "parent_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                        "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
+                        "state_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                        "receipts_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                        "logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                        "prev_randao": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                        "block_number": "1",
+                        "gas_limit": "1",
+                        "gas_used": "1",
+                        "timestamp": "1",
+                        "extra_data": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                        "base_fee_per_gas": "1",
+                        "blob_gas_used": "1",
+                        "excess_blob_gas": "1",
+                        "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                        "transactions_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                        "withdrawals_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
+                    },
+                    "blob_kzg_commitments": [
+                        "0xa94170080872584e54a1cf092d845703b13907f2e6b3b1c0ad573b910530499e3bcd48c6378846b80d2bfa58c81cf3d5"
+                    ],
+                    "value": "1",
+                    "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a"
+                },
+                "proofs": {
+                    "transaction_hashes": ["0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2", "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"],
+                    "generalized_indexes": [4, 5],
+                    "merkle_hashes": ["0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2", "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"]
+                },
+                "signature": "0x1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505cc411d61252fb6cb3fa0017b679f8bb2305b26a285fa2737f175668d0dff91cc1b66ac1fb663c9bc59509846d6ec05345bd908eda73e670af888da41af171505"
+            }
+        });
+
+        let res = serde_json::from_value::<SignedBuilderBid>(json);
+        assert!(res.is_ok());
+
+        let signed_builder_bid = res.unwrap();
+        assert_eq!(signed_builder_bid.version(), "deneb");
+        assert!(matches!(signed_builder_bid, SignedBuilderBid::Deneb(_, Some(_))));
     }
 }
