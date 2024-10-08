@@ -3,7 +3,7 @@ use ethereum_consensus::{
     domains::DomainType,
     phase0::mainnet::compute_domain,
     primitives::{BlsPublicKey, BlsSignature, Domain, Root, Slot},
-    signing::{compute_signing_root, sign_with_domain, verify_signed_data, verify_signature},
+    signing::{compute_signing_root, sign_with_domain, verify_signature, verify_signed_data},
     ssz::prelude::*,
     state_transition::Context,
     Error, Fork,
@@ -58,7 +58,7 @@ pub fn compute_signing_root_custom(object_root: [u8; 32], signing_domain: [u8; 3
 }
 
 pub fn verify_signed_message<T: TreeHash>(
-    message: &mut T,
+    message: &T,
     signature: &BlsSignature,
     public_key: &BlsPublicKey,
     domain_mask: [u8; 4],
@@ -84,7 +84,7 @@ pub fn compute_domain_custom(chain: &Context, domain_mask: [u8; 4]) -> [u8; 32] 
     domain[..4].copy_from_slice(&domain_mask);
 
     let fork_version = chain.genesis_fork_version;
-    let fd = ForkData { fork_version, genesis_validators_root: GENESIS_VALIDATORS_ROOT  };
+    let fd = ForkData { fork_version, genesis_validators_root: GENESIS_VALIDATORS_ROOT };
     let fork_data_root = fd.tree_hash_root().0;
 
     domain[4..].copy_from_slice(&fork_data_root[..28]);

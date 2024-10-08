@@ -2654,6 +2654,7 @@ dependencies = [
  "tokio-postgres",
  "tracing",
  "tree_hash",
+ "tree_hash_derive",
 ]
 
 [[package]]
