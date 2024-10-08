@@ -99,14 +99,18 @@ where
                 return Err(ConstraintsApiError::MaxConstraintsReached);
             }
 
+            // TODO: check if the pubkey is delegated to submit constraints for this validator.
+            // By default only the validator pubkey can submit them if there are no delegations.
+
             // Verify the delegation signature
-        if let Err(_) = verify_signed_message(
-            &mut message.digest(),
-            &constraint.signature,
-            &pubkey,
-            COMMIT_BOOST_DOMAIN,
-            &api.chain_info.context,
-        ) {
+            if let Err(_) = verify_signed_message(
+                &mut message.digest(),
+                &constraint.signature,
+                &pubkey,
+                COMMIT_BOOST_DOMAIN,
+                &api.chain_info.context,
+            ) {
+                error!(request_id = %request_id, "Invalid constraints signature");
                 return Err(ConstraintsApiError::InvalidSignature);
             };
 
