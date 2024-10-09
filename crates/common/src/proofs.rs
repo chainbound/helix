@@ -24,6 +24,8 @@ pub enum ProofError {
     MissingHash(TxHash),
     #[error("Proof verification failed")]
     VerificationFailed,
+    #[error("Decoding failed")]
+    DecodingFailed,
 }
 
 #[derive(Debug, Clone, SimpleSerialize, serde::Serialize, serde::Deserialize)]
@@ -65,8 +67,9 @@ impl SignableBLS for ConstraintsMessage {
         for tx in self.transactions.iter() {
             // Convert the opaque bytes to a EIP-2718 envelope and obtain the tx hash.
             // this is needed to handle type 3 transactions.
+            // FIXME: don't unwrap here and handle the error properly
             let tx = PooledTransactionsElement::decode_enveloped(tx.to_vec().into()).unwrap();
-            hasher.update(&keccak256(tx.hash()).as_slice());
+            hasher.update(tx.hash().as_slice());
         }
 
         hasher.finalize().into()
@@ -91,21 +94,23 @@ impl TryFrom<SignedConstraints> for SignedConstraintsWithProofData {
     type Error = ProofError;
 
     fn try_from(value: SignedConstraints) -> Result<Self, ProofError> {
-        let transactions = value
-            .message
-            .transactions
-            .iter()
-            .map(|tx| {
-                let tx_hash = TxHash::from_slice(keccak256(tx.to_vec()).as_slice());
-                let tx_root = Transaction::try_from(tx.to_vec().as_ref())
-                    .map_err(|_| ProofError::VerificationFailed)?
-                    .hash_tree_root()
-                    .map_err(|_| ProofError::VerificationFailed)?;
-                let tx_root = Hash256::from_slice(&tx_root.to_vec());
+        let mut transactions = Vec::with_capacity(value.message.transactions.len());
+        for transaction in value.message.transactions.to_vec().iter() {
+            let tx = PooledTransactionsElement::decode_enveloped(transaction.to_vec().into())
+                .map_err(|_| ProofError::DecodingFailed)?;
 
-                Ok((tx_hash, tx_root))
-            })
-            .collect::<Result<Vec<_>, ProofError>>()?;
+            let tx_hash = *tx.hash();
+
+            // Compute the hash tree root on the transaction object decoded without the optional
+            // sidecar. this is to prevent hashing the blobs of type 3 transactions.
+            let root = tx.into_transaction().envelope_encoded();
+            let root =
+                Transaction::try_from(root.as_ref()).map_err(|_| ProofError::DecodingFailed)?;
+            let root = root.clone().hash_tree_root().map_err(|_| ProofError::DecodingFailed)?;
+            let root = Hash256::from_slice(&root);
+
+            transactions.push((tx_hash, root));
+        }
 
         Ok(Self { signed_constraints: value, proof_data: transactions })
     }

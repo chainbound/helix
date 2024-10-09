@@ -201,7 +201,7 @@ where
         let stream = BroadcastStream::new(constraints_rx);
 
         let filtered = stream.map(|result| match result {
-            Ok(constraint) => match serde_json::to_string(&constraint) {
+            Ok(constraint) => match serde_json::to_string(&vec![constraint]) {
                 Ok(json) => Ok(Event::default()
                     .data(json)
                     .event("signed_constraint")
@@ -1486,7 +1486,10 @@ where
     
         match verify_multiproofs(&constraints, proofs, root) {
             Ok(_) => Ok(()),
-            Err(_) => Err(BuilderApiError::InclusionProofVerificationFailed),
+            Err(e) => {
+                error!(error = %e, "failed to verify inclusion proofs");
+                Err(BuilderApiError::InclusionProofVerificationFailed)
+            },
         }
     }
 
