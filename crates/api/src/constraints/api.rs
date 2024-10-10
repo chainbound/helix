@@ -169,21 +169,22 @@ where
         // Decode the incoming request body into a `SignedDelegation`.
         let mut signed_delegation: SignedDelegation = match serde_json::from_slice(&body_bytes) {
             Ok(delegation) => delegation,
-            Err(_) => return Err(ConstraintsApiError::InvalidDelegation),
+            Err(e) => {
+                warn!(err = ?e, request_id = %request_id, "Failed to decode delegation");
+                return Err(ConstraintsApiError::InvalidDelegation)
+            },
         };
         trace.decode = get_nanos_timestamp()?;
-
-        let pubkey = signed_delegation.message.validator_pubkey.clone();
-        let message = &mut signed_delegation.message;
         
         // Verify the delegation signature
-        if let Err(_) = verify_signed_message(
-            &mut message.digest(),
+        if let Err(e) = verify_signed_message(
+            &signed_delegation.message.digest(),
             &signed_delegation.signature,
-            &pubkey,
+            &signed_delegation.message.validator_pubkey,
             COMMIT_BOOST_DOMAIN,
             &api.chain_info.context,
         ) {
+            warn!(err = ?e, request_id = %request_id, "Invalid delegation signature");
             return Err(ConstraintsApiError::InvalidSignature);
         };
         trace.verify_signature = get_nanos_timestamp()?;

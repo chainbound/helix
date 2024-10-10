@@ -143,8 +143,8 @@ CREATE TABLE known_validators (
 
 
 CREATE TABLE proposer_duties (
-  "public_key" bytea,
-  "slot_number" integer PRIMARY KEY,
+  "public_key" bytea PRIMARY KEY,
+  "slot_number" integer,
   "validator_index" integer
 );
 

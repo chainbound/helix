@@ -160,10 +160,6 @@ impl<D: DatabaseService> ChainEventUpdater<D> {
             None
         };
 
-        if event.slot % 8 == 0 {
-            trace!(event.slot, ?new_duties, "event.slot % 8 == 0, fetched new_duties");
-        }
-
         // Update local cache if new duties were fetched.
         if let Some(new_duties) = &new_duties {
             self.proposer_duties = new_duties.clone();
@@ -172,9 +168,6 @@ impl<D: DatabaseService> ChainEventUpdater<D> {
         // Get the next proposer duty for the new slot.
         let next_duty =
             self.proposer_duties.iter().find(|duty| duty.slot == event.slot + 1).cloned();
-
-        let len = self.proposer_duties.len();
-        trace!(?next_duty, proposer_duties_len = len, "Sending slot update to subscribers");
 
         let update =
             ChainUpdate::SlotUpdate(SlotUpdate { slot: event.slot, new_duties, next_duty });
