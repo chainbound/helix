@@ -102,15 +102,15 @@ where
             // TODO: check if the pubkey is delegated to submit constraints for this validator.
             // By default only the validator pubkey can submit them if there are no delegations.
 
-            // Verify the delegation signature
-            if let Err(_) = verify_signed_message(
+            // Verify the constraints message BLS signature
+            if let Err(e) = verify_signed_message(
                 &mut message.digest(),
                 &constraint.signature,
                 &pubkey,
                 COMMIT_BOOST_DOMAIN,
                 &api.chain_info.context,
             ) {
-                error!(request_id = %request_id, "Invalid constraints signature");
+                error!(err = ?e, request_id = %request_id, "Invalid constraints signature");
                 return Err(ConstraintsApiError::InvalidSignature);
             };
 
@@ -235,24 +235,25 @@ where
         let body = req.into_body();
         let body_bytes = to_bytes(body, MAX_REQUEST_LENGTH).await?;
         
-        // Decode the incoming request body into a `SignedDelegation`.
+        // Decode the incoming request body into a `SignedRevocation`.
         let mut signed_revocation: SignedRevocation = match serde_json::from_slice(&body_bytes) {
             Ok(revocation ) => revocation,
-            Err(_) => return Err(ConstraintsApiError::InvalidRevocation),
+            Err(e) => {
+                warn!(err = ?e, request_id = %request_id, "Failed to decode revocation");
+                return Err(ConstraintsApiError::InvalidRevocation)
+            },
         };
         trace.decode = get_nanos_timestamp()?;
-
-        let pubkey = signed_revocation.message.validator_pubkey.clone();
-        let message = &mut signed_revocation.message;
         
-        // Verify the delegation signature
-        if let Err(_) = verify_signed_message(
-            &mut message.digest(),
+        // Verify the revocation signature
+        if let Err(e) = verify_signed_message(
+            &signed_revocation.message.digest(),
             &signed_revocation.signature,
-            &pubkey,
+            &signed_revocation.message.validator_pubkey,
             COMMIT_BOOST_DOMAIN,
             &api.chain_info.context,
         ) {
+            warn!(err = ?e, request_id = %request_id, "Invalid revocation signature");
             return Err(ConstraintsApiError::InvalidSignature);
         };
         trace.verify_signature = get_nanos_timestamp()?;
