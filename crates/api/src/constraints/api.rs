@@ -167,8 +167,14 @@ where
         let body_bytes = to_bytes(body, MAX_REQUEST_LENGTH).await?;
         
         // Decode the incoming request body into a `SignedDelegation`.
-        let mut signed_delegation: SignedDelegation = match serde_json::from_slice(&body_bytes) {
-            Ok(delegation) => delegation,
+        let mut signed_delegation = match serde_json::from_slice::<SignedDelegation>(&body_bytes) {
+            Ok(delegation) => match delegation.message.action {
+                0 => delegation,
+                other => {
+                    warn!(request_id = %request_id, action = other, "Invalid delegation action. expected 0");
+                    return Err(ConstraintsApiError::InvalidDelegation)
+                },
+            },
             Err(e) => {
                 warn!(err = ?e, request_id = %request_id, "Failed to decode delegation");
                 return Err(ConstraintsApiError::InvalidDelegation)
@@ -236,8 +242,14 @@ where
         let body_bytes = to_bytes(body, MAX_REQUEST_LENGTH).await?;
         
         // Decode the incoming request body into a `SignedRevocation`.
-        let mut signed_revocation: SignedRevocation = match serde_json::from_slice(&body_bytes) {
-            Ok(revocation ) => revocation,
+        let mut signed_revocation = match serde_json::from_slice::<SignedRevocation>(&body_bytes) {
+            Ok(revocation ) => match revocation.message.action {
+                1 => revocation,
+                other => {
+                    warn!(request_id = %request_id, action = other, "Invalid revocation action. expected 1");
+                    return Err(ConstraintsApiError::InvalidRevocation)
+                },
+            },
             Err(e) => {
                 warn!(err = ?e, request_id = %request_id, "Failed to decode revocation");
                 return Err(ConstraintsApiError::InvalidRevocation)

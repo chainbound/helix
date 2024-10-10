@@ -11,6 +11,7 @@ pub struct SignedDelegation {
 
 #[derive(Debug, Clone, SimpleSerialize, serde::Deserialize, serde::Serialize)]
 pub struct DelegationMessage {
+    pub action: u8,
     pub validator_pubkey: BlsPublicKey,
     pub delegatee_pubkey: BlsPublicKey,
 }
@@ -18,6 +19,7 @@ pub struct DelegationMessage {
 impl SignableBLS for DelegationMessage {
     fn digest(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
+        hasher.update([self.action]);
         hasher.update(&self.validator_pubkey.to_vec());
         hasher.update(&self.delegatee_pubkey.to_vec());
         
@@ -34,6 +36,7 @@ pub struct SignedRevocation {
 
 #[derive(Debug, Clone, SimpleSerialize, serde::Deserialize, serde::Serialize)]
 pub struct RevocationMessage {
+    pub action: u8,
     pub validator_pubkey: BlsPublicKey,
     pub delegatee_pubkey: BlsPublicKey,
 }
@@ -41,6 +44,7 @@ pub struct RevocationMessage {
 impl SignableBLS for RevocationMessage {
     fn digest(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
+        hasher.update([self.action]);
         hasher.update(&self.validator_pubkey.to_vec());
         hasher.update(&self.delegatee_pubkey.to_vec());
         
