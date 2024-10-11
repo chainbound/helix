@@ -127,11 +127,13 @@ where
             if saved_constraints.is_some_and(|c| c.len() +1 > MAX_CONSTRAINTS_PER_SLOT) {
                 return Err(ConstraintsApiError::MaxConstraintsReached);
             }
-            
+
             // Check if the constraint pubkey is delegated to submit constraints for this validator.
-            // - By default only the validator pubkey can submit them if there are no delegations
-            // - Even if there are delegations, the validator pubkey can still submit constraints
-            if constraint.message.pubkey != validator_pubkey && !delegatees.contains(&constraint.message.pubkey) {
+            // - If there are no delegations, only the validator pubkey can submit constraints
+            // - If there are delegations, only delegatees can submit constraints
+            if (delegatees.is_empty() && constraint.message.pubkey != validator_pubkey) ||
+                (!delegates.is_empty() && !delegatees.contains(&constraint.message.pubkey))
+            {
                 error!(request_id = %request_id, pubkey = %constraint.message.pubkey, "Pubkey unauthorized");
                 return Err(ConstraintsApiError::PubkeyNotAuthorized(constraint.message.pubkey))
             }
