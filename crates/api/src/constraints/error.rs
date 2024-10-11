@@ -2,7 +2,9 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use ethereum_consensus::crypto::PublicKey;
 use helix_common::proofs::ProofError;
+use helix_database::error::DatabaseError;
 use helix_datastore::error::AuctioneerError;
 use thiserror::Error;
 
@@ -53,7 +55,16 @@ pub enum ConstraintsApiError {
     Conflict(#[from] Conflict),
 
     #[error("Max constraints per slot reached")]
-    MaxConstraintsReached
+    MaxConstraintsReached,
+
+    #[error("database error: {0}")]
+    DatabaseError(#[from] DatabaseError),
+
+    #[error("Missing proposer info")]
+    MissingProposerInfo,
+
+    #[error("Pubkey not authorized to submit constraints: {0}")]
+    PubkeyNotAuthorized(PublicKey)
 }
 
 impl IntoResponse for ConstraintsApiError {
@@ -97,6 +108,15 @@ impl IntoResponse for ConstraintsApiError {
             },
             ConstraintsApiError::MaxConstraintsReached => {
                 (StatusCode::BAD_REQUEST, "Max constraints per slot reached").into_response()
+            }
+            ConstraintsApiError::DatabaseError(err) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {err}")).into_response()
+            },
+            ConstraintsApiError::MissingProposerInfo => {
+                (StatusCode::BAD_REQUEST, "Missing proposer info").into_response()
+            },
+            ConstraintsApiError::PubkeyNotAuthorized(pubkey) => {
+                (StatusCode::UNAUTHORIZED, format!("Pubkey not authorized to submit constraints: {pubkey}")).into_response()
             }
         }
     }

@@ -83,14 +83,43 @@ where
             return Err(ConstraintsApiError::NilConstraints);
         }
 
-        // Add all the constraints to the cache
+        // check that all constraints are for the same slot and with the same pubkey
+        let Some(first_constraints) = signed_constraints.first().map(|c| c.message.clone()) else {
+            error!(request_id = %request_id, "No constraints found");
+            return Err(ConstraintsApiError::InvalidConstraints);
+        };
+        if !signed_constraints.iter().all(|c| c.message.slot == first_constraints.slot) {
+            error!(request_id = %request_id, "Constraints for different slots in the same batch");
+            return Err(ConstraintsApiError::InvalidConstraints);
+        }
+        if !signed_constraints.iter().all(|c| c.message.pubkey == first_constraints.pubkey) {
+            error!(request_id = %request_id, "Constraints for different pubkeys in the same batch");
+            return Err(ConstraintsApiError::InvalidConstraints);
+        }
+
+        // Perf: can we avoid calling the db?
+        let maybe_validator_pubkey = api.db.get_proposer_duties().await?.iter().find_map(|d| {
+            if d.slot == first_constraints.slot {
+                Some(d.entry.registration.message.public_key.clone())
+            } else {
+                None
+            }
+        });
+        
+        let Some(validator_pubkey) = maybe_validator_pubkey else {
+            error!(request_id = %request_id, slot = first_constraints.slot, "Missing proposer info");
+            return Err(ConstraintsApiError::MissingProposerInfo);
+        };
+
+        // Fetch active delegations for the validator pubkey, if any
+        let delegations = api.auctioneer.get_validator_delegations(validator_pubkey.clone()).await?;
+        let delegatees = delegations.iter().map(|d| d.message.delegatee_pubkey.clone()).collect::<Vec<_>>();
+
+        // Add all the valid constraints to the cache
         for constraint in signed_constraints {
-            let pubkey = constraint.message.pubkey.clone();
-            let message = &constraint.message;
-            
             // Check for conflicts in the constraints
-            let saved_constraints = api.auctioneer.get_constraints(message.slot).await?;
-            if let Some(conflict) = conflicts_with(&saved_constraints, message) {
+            let saved_constraints = api.auctioneer.get_constraints(constraint.message.slot).await?;
+            if let Some(conflict) = conflicts_with(&saved_constraints, &constraint.message) {
                 return Err(ConstraintsApiError::Conflict(conflict));
             }
 
@@ -98,24 +127,26 @@ where
             if saved_constraints.is_some_and(|c| c.len() +1 > MAX_CONSTRAINTS_PER_SLOT) {
                 return Err(ConstraintsApiError::MaxConstraintsReached);
             }
-
-            // TODO: check if the pubkey is delegated to submit constraints for this validator.
-            // By default only the validator pubkey can submit them if there are no delegations.
+            
+            // Check if the constraint pubkey is delegated to submit constraints for this validator.
+            // - By default only the validator pubkey can submit them if there are no delegations
+            // - Even if there are delegations, the validator pubkey can still submit constraints
+            if constraint.message.pubkey != validator_pubkey && !delegatees.contains(&constraint.message.pubkey) {
+                error!(request_id = %request_id, pubkey = %constraint.message.pubkey, "Pubkey unauthorized");
+                return Err(ConstraintsApiError::PubkeyNotAuthorized(constraint.message.pubkey))
+            }
 
             // Verify the constraints message BLS signature
             if let Err(e) = verify_signed_message(
-                &mut message.digest(),
+                &constraint.message.digest(),
                 &constraint.signature,
-                &pubkey,
+                &constraint.message.pubkey,
                 COMMIT_BOOST_DOMAIN,
                 &api.chain_info.context,
             ) {
                 error!(err = ?e, request_id = %request_id, "Invalid constraints signature");
                 return Err(ConstraintsApiError::InvalidSignature);
             };
-
-            // Once we support sending messages signed with correct validator pubkey on the sidecar, 
-            // return error if invalid
 
             // Send to the constraints channel
             api.constraints_handle.send_constraints(constraint.clone());
