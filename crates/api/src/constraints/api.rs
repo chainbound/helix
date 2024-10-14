@@ -132,7 +132,7 @@ where
             // - If there are no delegations, only the validator pubkey can submit constraints
             // - If there are delegations, only delegatees can submit constraints
             if (delegatees.is_empty() && constraint.message.pubkey != validator_pubkey) ||
-                (!delegates.is_empty() && !delegatees.contains(&constraint.message.pubkey))
+                (!delegatees.is_empty() && !delegatees.contains(&constraint.message.pubkey))
             {
                 error!(request_id = %request_id, pubkey = %constraint.message.pubkey, "Pubkey unauthorized");
                 return Err(ConstraintsApiError::PubkeyNotAuthorized(constraint.message.pubkey))
