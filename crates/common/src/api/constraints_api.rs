@@ -3,6 +3,12 @@ use sha2::{Digest, Sha256};
 
 pub const MAX_CONSTRAINTS_PER_SLOT: usize = 256;
 
+/// The action type for a delegation message.
+pub const DELEGATION_ACTION: u8 = 0;
+
+/// The action type for a revocation message.
+pub const REVOCATION_ACTION: u8 = 1;
+
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct SignedDelegation {
     pub message: DelegationMessage,

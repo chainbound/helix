@@ -2,7 +2,7 @@ use axum::{
     body::{to_bytes, Body}, extract::ws::{Message, WebSocket, WebSocketUpgrade}, http::{request, Request, StatusCode}, response::{IntoResponse, Response}, Extension
 };
 use ethereum_consensus::{primitives::{BlsPublicKey, BlsSignature}, deneb::{verify_signed_data, Slot}, ssz};
-use helix_common::{api::constraints_api::{SignableBLS, SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsMessage, ConstraintsWithProofData, ProofError, SignedConstraints, SignedConstraintsWithProofData}, ConstraintSubmissionTrace};
+use helix_common::{api::constraints_api::{SignableBLS, SignedDelegation, SignedRevocation, DELEGATION_ACTION, MAX_CONSTRAINTS_PER_SLOT, REVOCATION_ACTION}, bellatrix::List, chain_info::ChainInfo, proofs::{ConstraintsMessage, ConstraintsWithProofData, ProofError, SignedConstraints, SignedConstraintsWithProofData}, ConstraintSubmissionTrace};
 use helix_database::DatabaseService;
 use helix_datastore::Auctioneer;
 use ethereum_consensus::signing::verify_signature;
@@ -131,9 +131,10 @@ where
             // Check if the constraint pubkey is delegated to submit constraints for this validator.
             // - If there are no delegations, only the validator pubkey can submit constraints
             // - If there are delegations, only delegatees can submit constraints
-            if (delegatees.is_empty() && constraint.message.pubkey != validator_pubkey) ||
-                (!delegatees.is_empty() && !delegatees.contains(&constraint.message.pubkey))
-            {
+            let message_not_signed_by_validator = delegatees.is_empty() && constraint.message.pubkey != validator_pubkey;
+            let message_not_signed_by_delegatee = !delegatees.is_empty() && !delegatees.contains(&constraint.message.pubkey);
+
+            if message_not_signed_by_validator && message_not_signed_by_delegatee {
                 error!(request_id = %request_id, pubkey = %constraint.message.pubkey, "Pubkey unauthorized");
                 return Err(ConstraintsApiError::PubkeyNotAuthorized(constraint.message.pubkey))
             }
@@ -202,7 +203,7 @@ where
         // Decode the incoming request body into a `SignedDelegation`.
         let mut signed_delegation = match serde_json::from_slice::<SignedDelegation>(&body_bytes) {
             Ok(delegation) => match delegation.message.action {
-                0 => delegation,
+                DELEGATION_ACTION => delegation,
                 other => {
                     warn!(request_id = %request_id, action = other, "Invalid delegation action. expected 0");
                     return Err(ConstraintsApiError::InvalidDelegation)
@@ -277,7 +278,7 @@ where
         // Decode the incoming request body into a `SignedRevocation`.
         let mut signed_revocation = match serde_json::from_slice::<SignedRevocation>(&body_bytes) {
             Ok(revocation ) => match revocation.message.action {
-                1 => revocation,
+                REVOCATION_ACTION => revocation,
                 other => {
                     warn!(request_id = %request_id, action = other, "Invalid revocation action. expected 1");
                     return Err(ConstraintsApiError::InvalidRevocation)
