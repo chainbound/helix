@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -10,8 +10,7 @@ use ethereum_consensus::{
 };
 use helix_common::{
     api::{
-        builder_api::BuilderGetValidatorsResponseEntry, data_api::BidFilters,
-        proposer_api::ValidatorRegistrationInfo,
+        builder_api::BuilderGetValidatorsResponseEntry, constraints_api::{SignedDelegation, SignedRevocation}, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
     }, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
     }, deneb::SignedValidatorRegistration, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary
@@ -26,6 +25,7 @@ use crate::{
 pub struct MockDatabaseService {
     known_validators: Arc<Mutex<Vec<ValidatorSummary>>>,
     proposer_duties: Arc<Mutex<Vec<BuilderGetValidatorsResponseEntry>>>,
+    validator_delegations: Arc<Mutex<HashMap<BlsPublicKey, Vec<BlsPublicKey>>>>,
 }
 
 impl MockDatabaseService {
@@ -33,7 +33,11 @@ impl MockDatabaseService {
         known_validators: Arc<Mutex<Vec<ValidatorSummary>>>,
         proposer_duties: Arc<Mutex<Vec<BuilderGetValidatorsResponseEntry>>>,
     ) -> Self {
-        Self { known_validators, proposer_duties }
+        Self {
+            known_validators,
+            proposer_duties,
+            validator_delegations: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 }
 

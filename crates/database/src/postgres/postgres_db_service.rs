@@ -12,10 +12,10 @@ use ethereum_consensus::{altair::Hash32, primitives::BlsPublicKey, ssz::prelude:
 
 use helix_common::{
     api::{
-        self, builder_api::BuilderGetValidatorsResponseEntry, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
+        self, builder_api::BuilderGetValidatorsResponseEntry, constraints_api::{SignedDelegation, SignedRevocation}, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
     }, bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidSubmission, BidTrace, SignedBidSubmission,
-    }, deneb::SignedValidatorRegistration, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, Filtering, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, RelayConfig, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary
+    }, deneb::SignedValidatorRegistration, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, Filtering, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, RelayConfig, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary,
 };
 use tokio_postgres::{row, types::ToSql, NoTls};
 use tracing::{error, info};
@@ -614,7 +614,7 @@ impl DatabaseService for PostgresDatabaseService {
 
         // Join the values clauses and append them to the SQL statement
         sql.push_str(&values_clauses.join(", "));
-        sql.push_str(" ON CONFLICT (public_key) DO NOTHING");
+        sql.push_str(" ON CONFLICT (slot_number) DO NOTHING");
 
         // Execute the query
         transaction.execute(&sql, &params[..]).await?;

@@ -10,7 +10,7 @@ use tokio::{
     sync::{broadcast, Mutex},
     time::{sleep, Instant},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use helix_beacon_client::{
     error::BeaconClientError,
@@ -33,7 +33,7 @@ const TRUSTED_PROPOSERS_UPDATE_FREQ: u64 = 5;
 // Constants for known validators refresh logic.
 const MIN_SLOTS_BETWEEN_UPDATES: u64 = 6;
 const MAX_SLOTS_BEFORE_FORCED_UPDATE: u64 = 32;
-pub(crate) const SLEEP_DURATION_BEFORE_REFRESHING_VALIDATORS: Duration = Duration::from_secs(6);
+pub(crate) const SLEEP_DURATION_BEFORE_REFRESHING_VALIDATORS: Duration = Duration::from_millis(200);
 
 // Max time between header and payload for OptimsiticV2 submissions
 const MAX_DELAY_BETWEEN_V2_SUBMISSIONS_MS: u64 = 2_000;
@@ -428,18 +428,27 @@ impl<DB: DatabaseService, BeaconClient: MultiBeaconClientTrait, A: Auctioneer>
     pub async fn format_and_store_duties(
         &self,
         proposer_duties: Vec<ProposerDuty>,
-        mut signed_validator_registrations: HashMap<BlsPublicKey, SignedValidatorRegistrationEntry>,
+        signed_validator_registrations: HashMap<BlsPublicKey, SignedValidatorRegistrationEntry>,
     ) -> Result<usize, DatabaseError> {
         let mut formatted_proposer_duties: Vec<BuilderGetValidatorsResponseEntry> =
             Vec::with_capacity(proposer_duties.len());
 
+        let len = proposer_duties.len();
+
         for duty in proposer_duties {
-            if let Some(reg) = signed_validator_registrations.remove(&duty.public_key) {
+            if let Some(reg) = signed_validator_registrations.get(&duty.public_key).cloned() {
                 formatted_proposer_duties.push(BuilderGetValidatorsResponseEntry {
                     slot: duty.slot,
                     validator_index: duty.validator_index,
                     entry: reg.registration_info,
                 });
+            } else {
+                warn!(
+                    public_key = %duty.public_key,
+                    slot = duty.slot,
+                    proposer_duties_len = len,
+                    "No signed validator registration found for proposer duty"
+                );
             }
         }
 
