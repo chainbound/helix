@@ -543,53 +543,56 @@ impl Auctioneer for RedisCache {
         Ok(delegations.unwrap_or_default())
     }
 
-    async fn save_validator_delegation(
+    async fn save_validator_delegations(
         &self,
-        signed_delegation: SignedDelegation,
+        signed_delegations: Vec<SignedDelegation>,
     ) -> Result<(), AuctioneerError> {
-        let key = get_delegations_key(&signed_delegation.message.validator_pubkey);
+        for signed_delegation in signed_delegations {
+            let key = get_delegations_key(&signed_delegation.message.validator_pubkey);
+    
+            // Attempt to get the existing delegations from the cache.
+            let delegations: Option<Vec<SignedDelegation>> =
+                self.get(&key).await.map_err(AuctioneerError::RedisError)?;
+    
+            // Append the new delegation to the existing delegations or create a new Vec if none exist.
+            let mut all_delegations = match delegations {
+                Some(mut delegations) => {
+                    delegations.push(signed_delegation);
+                    delegations
+                }
+                None => Vec::from([signed_delegation]),
+            };
+    
+            // Save the updated delegations back to the cache.
+            self.set(&key, &all_delegations, None).await.map_err(AuctioneerError::RedisError)?;
+        }
 
-        // Attempt to get the existing delegations from the cache.
-        let delegations: Option<Vec<SignedDelegation>> =
-            self.get(&key).await.map_err(AuctioneerError::RedisError)?;
-
-        // Append the new delegation to the existing delegations or create a new Vec if none exist.
-        let mut all_delegations = match delegations {
-            Some(mut delegations) => {
-                delegations.push(signed_delegation);
-                delegations
-            }
-            None => Vec::from([signed_delegation]),
-        };
-
-        // Save the updated delegations back to the cache.
-        self.set(&key, &all_delegations, None).await.map_err(AuctioneerError::RedisError)
+        Ok(())
     }
 
-    async fn revoke_validator_delegation(
+    async fn revoke_validator_delegations(
         &self,
-        signed_revocation: SignedRevocation,
+        signed_revocations: Vec<SignedRevocation>,
     ) -> Result<(), AuctioneerError> {
-        let key = get_delegations_key(&signed_revocation.message.validator_pubkey);
+        for signed_revocation in &signed_revocations {
+            let key = get_delegations_key(&signed_revocation.message.validator_pubkey);
+    
+            // Attempt to get the existing delegations from the cache.
+            let mut delegations: Vec<SignedDelegation> =
+                self.get(&key).await.map_err(AuctioneerError::RedisError)?.unwrap_or_default();
+    
+            // Filter out the revoked delegation.
+            let updated_delegations = delegations.retain(|delegation| {
+                signed_revocations.iter().all(|revocation| {
+                    delegation.message.delegatee_pubkey != revocation.message.delegatee_pubkey
+                })
+            });
+    
+            // Save the updated delegations back to the cache.
+            self.set(&key, &updated_delegations, None).await.map_err(AuctioneerError::RedisError)?;
+        }
 
-        // Attempt to get the existing delegations from the cache.
-        let delegations: Option<Vec<SignedDelegation>> =
-            self.get(&key).await.map_err(AuctioneerError::RedisError)?;
-
-        // Filter out the revoked delegation.
-        let updated_delegations = match delegations {
-            Some(mut delegations) => {
-                delegations.retain(|delegation| {
-                    delegation.message.delegatee_pubkey !=
-                        signed_revocation.message.delegatee_pubkey
-                });
-                delegations
-            }
-            None => Vec::new(),
-        };
-
-        // Save the updated delegations back to the cache.
-        self.set(&key, &updated_delegations, None).await.map_err(AuctioneerError::RedisError)
+        Ok(())
     }
 
     async fn save_constraints(

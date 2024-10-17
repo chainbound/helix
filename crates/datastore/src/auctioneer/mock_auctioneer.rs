@@ -43,16 +43,16 @@ impl Auctioneer for MockAuctioneer {
         Ok(vec![])
     }
 
-    async fn save_validator_delegation(
+    async fn save_validator_delegations(
         &self,
-        _signed_delegation: SignedDelegation,
+        _signed_delegations: Vec<SignedDelegation>,
     ) -> Result<(), AuctioneerError> {
         Ok(())
     }
 
-    async fn revoke_validator_delegation(
+    async fn revoke_validator_delegations(
         &self,
-        _signed_revocation: SignedRevocation,
+        _signed_revocations: Vec<SignedRevocation>,
     ) -> Result<(), AuctioneerError> {
         Ok(())
     }

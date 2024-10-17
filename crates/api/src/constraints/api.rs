@@ -9,7 +9,7 @@ use ethereum_consensus::signing::verify_signature;
 use helix_utils::signing::{verify_signed_message, COMMIT_BOOST_DOMAIN};
 use tracing::{info, warn, error};
 use uuid::Uuid;
-use std::{sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{collections::HashSet, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use tokio::{sync::broadcast, time::Instant};
 
 use crate::constraints::error::ConstraintsApiError;
@@ -200,42 +200,41 @@ where
         let body = req.into_body();
         let body_bytes = to_bytes(body, MAX_REQUEST_LENGTH).await?;
         
-        // Decode the incoming request body into a `SignedDelegation`.
-        let mut signed_delegation = match serde_json::from_slice::<SignedDelegation>(&body_bytes) {
-            Ok(delegation) => match delegation.message.action {
-                DELEGATION_ACTION => delegation,
-                other => {
-                    warn!(request_id = %request_id, action = other, "Invalid delegation action. expected 0");
+        // Decode the incoming request body into a `SignedDelegation` array.
+        let signed_delegations = match serde_json::from_slice::<Vec<SignedDelegation>>(&body_bytes) {
+            Ok(delegations) => {
+                let action = delegations.iter().map(|d| d.message.action).collect::<HashSet<_>>();
+                if action.len() != 1 || !action.contains(&DELEGATION_ACTION) {
+                    warn!(request_id = %request_id, actions = ?action, "Invalid delegations action. expected 0");
                     return Err(ConstraintsApiError::InvalidDelegation)
-                },
-            },
+                }
+                delegations
+            }
             Err(e) => {
-                warn!(err = ?e, request_id = %request_id, "Failed to decode delegation");
+                warn!(err = ?e, request_id = %request_id, "Failed to decode delegations");
                 return Err(ConstraintsApiError::InvalidDelegation)
             },
         };
         trace.decode = get_nanos_timestamp()?;
-        
-        // Verify the delegation signature
-        if let Err(e) = verify_signed_message(
-            &signed_delegation.message.digest(),
-            &signed_delegation.signature,
-            &signed_delegation.message.validator_pubkey,
-            COMMIT_BOOST_DOMAIN,
-            &api.chain_info.context,
-        ) {
-            warn!(err = ?e, request_id = %request_id, "Invalid delegation signature");
-            return Err(ConstraintsApiError::InvalidSignature);
-        };
+
+        for delegation in &signed_delegations {
+            if let Err(e) = verify_signed_message(
+                &delegation.message.digest(),
+                &delegation.signature,
+                &delegation.message.validator_pubkey,
+                COMMIT_BOOST_DOMAIN,
+                &api.chain_info.context,
+            ) {
+                warn!(err = ?e, request_id = %request_id, "Invalid delegation signature");
+                return Err(ConstraintsApiError::InvalidSignature);
+            };
+        }
         trace.verify_signature = get_nanos_timestamp()?;
 
         // Store the delegation in the database
-        tokio::spawn( async move {
-            if let Err(err) = api.auctioneer.save_validator_delegation(signed_delegation).await {
-                error!(
-                    error = %err,
-                    "Failed to save delegation",
-                )
+        tokio::spawn(async move {
+            if let Err(err) = api.auctioneer.save_validator_delegations(signed_delegations).await {
+                error!(error = %err, "Failed to save delegations");
             }
         });
 
@@ -275,42 +274,41 @@ where
         let body = req.into_body();
         let body_bytes = to_bytes(body, MAX_REQUEST_LENGTH).await?;
         
-        // Decode the incoming request body into a `SignedRevocation`.
-        let mut signed_revocation = match serde_json::from_slice::<SignedRevocation>(&body_bytes) {
-            Ok(revocation ) => match revocation.message.action {
-                REVOCATION_ACTION => revocation,
-                other => {
-                    warn!(request_id = %request_id, action = other, "Invalid revocation action. expected 1");
+        // Decode the incoming request body into a `SignedRevocation` array.
+        let signed_revocations = match serde_json::from_slice::<Vec<SignedRevocation>>(&body_bytes) {
+            Ok(revocations) => {
+                let action = revocations.iter().map(|r| r.message.action).collect::<HashSet<_>>();
+                if action.len() != 1 || !action.contains(&REVOCATION_ACTION) {
+                    warn!(request_id = %request_id, actions = ?action, "Invalid revocation action. expected 1");
                     return Err(ConstraintsApiError::InvalidRevocation)
-                },
-            },
+                }
+                revocations
+            }
             Err(e) => {
                 warn!(err = ?e, request_id = %request_id, "Failed to decode revocation");
                 return Err(ConstraintsApiError::InvalidRevocation)
             },
         };
         trace.decode = get_nanos_timestamp()?;
-        
-        // Verify the revocation signature
-        if let Err(e) = verify_signed_message(
-            &signed_revocation.message.digest(),
-            &signed_revocation.signature,
-            &signed_revocation.message.validator_pubkey,
-            COMMIT_BOOST_DOMAIN,
-            &api.chain_info.context,
-        ) {
-            warn!(err = ?e, request_id = %request_id, "Invalid revocation signature");
-            return Err(ConstraintsApiError::InvalidSignature);
-        };
+
+        for revocation in &signed_revocations {
+            if let Err(e) = verify_signed_message(
+                &revocation.message.digest(),
+                &revocation.signature,
+                &revocation.message.validator_pubkey,
+                COMMIT_BOOST_DOMAIN,
+                &api.chain_info.context,
+            ) {
+                warn!(err = ?e, request_id = %request_id, "Invalid revocation signature");
+                return Err(ConstraintsApiError::InvalidSignature);
+            };
+        }
         trace.verify_signature = get_nanos_timestamp()?;
 
         // Store the delegation in the database
-        tokio::spawn( async move {
-            if let Err(err) = api.auctioneer.revoke_validator_delegation(signed_revocation).await {
-                error!(
-                    error = %err,
-                    "Failed to do revocation",
-                )
+        tokio::spawn(async move {
+            if let Err(err) = api.auctioneer.revoke_validator_delegations(signed_revocations).await {
+                error!(error = %err, "Failed to do revocation");
             }
         });
 
