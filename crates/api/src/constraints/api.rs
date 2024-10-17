@@ -204,7 +204,8 @@ where
         let signed_delegations = match serde_json::from_slice::<Vec<SignedDelegation>>(&body_bytes) {
             Ok(delegations) => {
                 let action = delegations.iter().map(|d| d.message.action).collect::<HashSet<_>>();
-                if action.len() != 1 || !action.contains(&DELEGATION_ACTION) {
+                let are_all_actions_delegations = action.len() == 1 && action.contains(&DELEGATION_ACTION); 
+                if !are_all_actions_delegations {
                     warn!(request_id = %request_id, actions = ?action, "Invalid delegations action. expected 0");
                     return Err(ConstraintsApiError::InvalidDelegation)
                 }
@@ -278,7 +279,8 @@ where
         let signed_revocations = match serde_json::from_slice::<Vec<SignedRevocation>>(&body_bytes) {
             Ok(revocations) => {
                 let action = revocations.iter().map(|r| r.message.action).collect::<HashSet<_>>();
-                if action.len() != 1 || !action.contains(&REVOCATION_ACTION) {
+                let are_all_actions_revocations = action.len() == 1 && action.contains(&REVOCATION_ACTION);
+                if !are_all_actions_revocations {
                     warn!(request_id = %request_id, actions = ?action, "Invalid revocation action. expected 1");
                     return Err(ConstraintsApiError::InvalidRevocation)
                 }
