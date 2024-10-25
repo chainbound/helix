@@ -90,6 +90,15 @@ pub enum BuilderApiError {
     #[error("withdrawls root mismatch. got: {got:?}, expected: {expected:?}")]
     WithdrawalsRootMismatch { got: Hash32, expected: Hash32 },
 
+    #[error("missing transactions")]
+    MissingTransactions,
+
+    #[error("missing transactions root")]
+    MissingTransactionsRoot,
+
+    #[error("transactions root mismatch. got: {got:?}, expected: {expected:?}")]
+    TransactionsRootMismatch { got: Hash32, expected: Hash32 },
+
     #[error("signature verification failed")]
     SignatureVerificationFailed,
 
@@ -264,6 +273,15 @@ impl IntoResponse for BuilderApiError {
             },
             BuilderApiError::WithdrawalsRootMismatch { got, expected } => {
                 (StatusCode::BAD_REQUEST, format!("Withdrawals root mismatch. got: {got:?}, expected: {expected:?}")).into_response()
+            },
+            BuilderApiError::MissingTransactions => {
+                (StatusCode::BAD_REQUEST, "missing transactions").into_response()
+            },
+            BuilderApiError::MissingTransactionsRoot => {
+                (StatusCode::BAD_REQUEST, "missing transactions root").into_response()
+            },
+            BuilderApiError::TransactionsRootMismatch { got, expected } => {
+                (StatusCode::BAD_REQUEST, format!("transactions root mismatch. got: {got:?}, expected: {expected:?}")).into_response()
             },
             BuilderApiError::PayloadAttributesNotYetKnown => {
                 (StatusCode::BAD_REQUEST, "payload attributes not yet known").into_response()

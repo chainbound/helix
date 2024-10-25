@@ -1,7 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ethereum_consensus::{
-    builder::{SignedValidatorRegistration, ValidatorRegistration},
     crypto::Signature,
     phase0::Validator,
     primitives::{BlsPublicKey, ExecutionAddress, Gwei, ValidatorIndex},
@@ -9,9 +8,8 @@ use ethereum_consensus::{
 };
 use reth_primitives::hex;
 use serde::{Deserialize, Serialize};
-use tokio_postgres::Row;
 
-use crate::{api::proposer_api::ValidatorRegistrationInfo, ValidatorPreferences};
+use crate::api::proposer_api::ValidatorRegistrationInfo;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ValidatorSummary {

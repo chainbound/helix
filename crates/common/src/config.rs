@@ -1,7 +1,11 @@
 use crate::{api::*, ValidatorPreferences};
 use clap::Parser;
-use ethereum_consensus::ssz::prelude::Node;
-use helix_utils::request_encoding::Encoding;
+use ethereum_consensus::{deneb::BlsPublicKey, ssz::prelude::Node};
+use helix_utils::{
+    request_encoding::Encoding,
+    serde::{default_bool, deserialize_url, serialize_url},
+};
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs::File};
 
@@ -26,6 +30,15 @@ pub struct RelayConfig {
     pub router_config: RouterConfig,
     #[serde(default = "default_duration")]
     pub target_get_payload_propagation_duration_ms: u64,
+    #[serde(default)]
+    pub primev_config: Option<PrimevConfig>,
+    /// Submissions from these builder pubkeys will never be dropped early
+    /// for having a low bid. They will always be simulated and fully verified.
+    /// This is useful when testing builder strategies.
+    #[serde(default)]
+    pub skip_floor_bid_builder_pubkeys: Vec<BlsPublicKey>,
+    #[serde(default)]
+    pub discord_webhook_url: Option<String>,
 }
 
 impl RelayConfig {
@@ -80,7 +93,12 @@ pub struct SimulatorConfig {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BeaconClientConfig {
-    pub url: String,
+    #[serde(serialize_with = "serialize_url", deserialize_with = "deserialize_url")]
+    pub url: Url,
+    /// Bool representing if this beacon client is configured to
+    /// handle async blob gossiping.
+    #[serde(default = "default_bool::<false>")]
+    pub gossip_blobs_enabled: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -100,6 +118,14 @@ pub enum NetworkConfig {
         genesis_validator_root: Node,
         genesis_time: u64,
     },
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct PrimevConfig {
+    pub builder_url: String,
+    pub builder_contract: String,
+    pub validator_url: String,
+    pub validator_contract: String,
 }
 
 #[derive(Default, Serialize, Deserialize, Clone)]
@@ -158,6 +184,7 @@ impl RouterConfig {
                 Route::GetTopBid,
                 Route::GetBuilderConstraints,
                 Route::GetBuilderConstraintsStream,
+                Route::CancelBid,
             ],
         );
 
@@ -168,7 +195,7 @@ impl RouterConfig {
                 Route::RegisterValidators,
                 Route::GetHeader,
                 Route::GetHeaderWithProofs,
-                Route::GetPayload
+                Route::GetPayload,
             ],
         );
 
@@ -240,6 +267,7 @@ pub enum Route {
     SubmitBlock,
     SubmitBlockOptimistic,
     SubmitHeader,
+    CancelBid,
     GetTopBid,
     Status,
     RegisterValidators,
@@ -274,23 +302,40 @@ impl Route {
         match self {
             Route::GetValidators => format!("{PATH_BUILDER_API}{PATH_GET_VALIDATORS}"),
             Route::SubmitBlock => format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK}"),
-            Route::SubmitBlockWithProofs => format!("{PATH_BUILDER_API}{PATH_BUILDER_BLOCKS_WITH_PROOFS}"),
-            Route::SubmitBlockOptimistic => format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK_OPTIMISTIC_V2}"),
+            Route::SubmitBlockWithProofs => {
+                format!("{PATH_BUILDER_API}{PATH_BUILDER_BLOCKS_WITH_PROOFS}")
+            }
+            Route::SubmitBlockOptimistic => {
+                format!("{PATH_BUILDER_API}{PATH_SUBMIT_BLOCK_OPTIMISTIC_V2}")
+            }
             Route::SubmitHeader => format!("{PATH_BUILDER_API}{PATH_SUBMIT_HEADER}"),
+            Route::CancelBid => format!("{PATH_BUILDER_API}{PATH_CANCEL_BID}"),
             Route::GetTopBid => format!("{PATH_BUILDER_API}{PATH_GET_TOP_BID}"),
             Route::Status => format!("{PATH_PROPOSER_API}{PATH_STATUS}"),
             Route::RegisterValidators => format!("{PATH_PROPOSER_API}{PATH_REGISTER_VALIDATORS}"),
             Route::GetHeader => format!("{PATH_PROPOSER_API}{PATH_GET_HEADER}"),
-            Route::GetHeaderWithProofs => format!("{PATH_PROPOSER_API}{PATH_GET_HEADER_WITH_PROOFS}"),
+            Route::GetHeaderWithProofs => {
+                format!("{PATH_PROPOSER_API}{PATH_GET_HEADER_WITH_PROOFS}")
+            }
             Route::GetPayload => format!("{PATH_PROPOSER_API}{PATH_GET_PAYLOAD}"),
-            Route::ProposerPayloadDelivered => format!("{PATH_DATA_API}{PATH_PROPOSER_PAYLOAD_DELIVERED}"),
+            Route::ProposerPayloadDelivered => {
+                format!("{PATH_DATA_API}{PATH_PROPOSER_PAYLOAD_DELIVERED}")
+            }
             Route::BuilderBidsReceived => format!("{PATH_DATA_API}{PATH_BUILDER_BIDS_RECEIVED}"),
             Route::ValidatorRegistration => format!("{PATH_DATA_API}{PATH_VALIDATOR_REGISTRATION}"),
-            Route::SubmitBuilderConstraints => format!("{PATH_CONSTRAINTS_API}{PATH_SUBMIT_BUILDER_CONSTRAINTS}"),
-            Route::DelegateSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_DELEGATE_SUBMISSION_RIGHTS}"),
-            Route::RevokeSubmissionRights => format!("{PATH_CONSTRAINTS_API}{PATH_REVOKE_SUBMISSION_RIGHTS}"),
+            Route::SubmitBuilderConstraints => {
+                format!("{PATH_CONSTRAINTS_API}{PATH_SUBMIT_BUILDER_CONSTRAINTS}")
+            }
+            Route::DelegateSubmissionRights => {
+                format!("{PATH_CONSTRAINTS_API}{PATH_DELEGATE_SUBMISSION_RIGHTS}")
+            }
+            Route::RevokeSubmissionRights => {
+                format!("{PATH_CONSTRAINTS_API}{PATH_REVOKE_SUBMISSION_RIGHTS}")
+            }
             Route::GetBuilderConstraints => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS}"),
-            Route::GetBuilderConstraintsStream => format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS_STREAM}"),
+            Route::GetBuilderConstraintsStream => {
+                format!("{PATH_BUILDER_API}{PATH_BUILDER_CONSTRAINTS_STREAM}")
+            }
             Route::GetBuilderDelegations => format!("{PATH_BUILDER_API}{PATH_BUILDER_DELEGATIONS}"),
             Route::All => panic!("All is not a real route"),
             Route::BuilderApi => panic!("BuilderApi is not a real route"),
@@ -313,9 +358,13 @@ fn test_config() {
     let mut config = RelayConfig::default();
     config.redis.url = "redis://localhost:6379".to_string();
     config.simulator.url = "http://localhost:8080".to_string();
-    config.beacon_clients.push(BeaconClientConfig { url: "http://localhost:8080".to_string() });
+    config.beacon_clients.push(BeaconClientConfig {
+        url: Url::parse("http://localhost:8080").unwrap(),
+        gossip_blobs_enabled: false,
+    });
     config.broadcasters.push(BroadcasterConfig::BeaconClient(BeaconClientConfig {
-        url: "http://localhost:8080".to_string(),
+        url: Url::parse("http://localhost:8080").unwrap(),
+        gossip_blobs_enabled: false,
     }));
     config.network_config = NetworkConfig::Custom {
         dir_path: "test".to_string(),
@@ -328,6 +377,7 @@ fn test_config() {
         filtering: Filtering::Regional,
         trusted_builders: None,
         header_delay: true,
+        gossip_blobs: false,
     };
     config.router_config = RouterConfig {
         enabled_routes: vec![

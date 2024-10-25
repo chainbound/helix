@@ -31,11 +31,13 @@ pub enum SignedBidSubmission {
 impl BidSubmission for SignedBidSubmission {
     fn proofs(&self) -> Option<&InclusionProofs> {
         match self {
-            SignedBidSubmission::Deneb(signed_bid_submission) => signed_bid_submission.proofs.as_ref(),
+            SignedBidSubmission::Deneb(signed_bid_submission) => {
+                signed_bid_submission.proofs.as_ref()
+            }
             SignedBidSubmission::Capella(_) => None,
         }
     }
-    
+
     fn bid_trace(&self) -> &BidTrace {
         match self {
             SignedBidSubmission::Deneb(signed_bid_submission) => &signed_bid_submission.message,
@@ -204,6 +206,26 @@ impl BidSubmission for SignedBidSubmission {
             ExecutionPayload::Deneb(payload) => {
                 let mut withdrawals = payload.withdrawals.clone();
                 match withdrawals.hash_tree_root() {
+                    Ok(root) => Some(root),
+                    Err(_) => None,
+                }
+            }
+        }
+    }
+
+    fn transactions_root(&self) -> Option<Node> {
+        match &self.execution_payload() {
+            ExecutionPayload::Bellatrix(_) => None,
+            ExecutionPayload::Capella(payload) => {
+                let mut transactions = payload.transactions.clone();
+                match transactions.hash_tree_root() {
+                    Ok(root) => Some(root),
+                    Err(_) => None,
+                }
+            }
+            ExecutionPayload::Deneb(payload) => {
+                let mut transactions = payload.transactions.clone();
+                match transactions.hash_tree_root() {
                     Ok(root) => Some(root),
                     Err(_) => None,
                 }

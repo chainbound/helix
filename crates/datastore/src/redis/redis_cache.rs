@@ -19,7 +19,7 @@ use helix_common::{
     ProposerInfo,
 };
 use redis::{AsyncCommands, RedisResult, Script, Value};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::broadcast;
 use tracing::error;
 
@@ -48,8 +48,8 @@ use crate::{
     },
     types::{
         keys::{
-            BUILDER_INFO_KEY, HOUSEKEEPER_LOCK_KEY, LAST_HASH_DELIVERED_KEY,
-            LAST_SLOT_DELIVERED_KEY, PROPOSER_WHITELIST_KEY,
+            BUILDER_INFO_KEY, HOUSEKEEPER_LOCK_KEY, KILL_SWITCH, LAST_HASH_DELIVERED_KEY,
+            LAST_SLOT_DELIVERED_KEY, PRIMEV_PROPOSERS_KEY, PROPOSER_WHITELIST_KEY,
         },
         signed_builder_bid_wrapper::SignedBuilderBidWrapper,
         SaveBidAndUpdateTopBidResponse,
@@ -58,7 +58,7 @@ use crate::{
 };
 
 use super::utils::{
-    get_constraints_key, get_delegations_key, get_hash_from_hex,
+    get_constraints_key, get_delegations_key, get_hash_from_hex, get_header_tx_root_key,
     get_pending_block_builder_block_hash_key, get_pending_block_builder_key, get_pubkey_from_hex,
 };
 
@@ -549,20 +549,21 @@ impl Auctioneer for RedisCache {
     ) -> Result<(), AuctioneerError> {
         for signed_delegation in signed_delegations {
             let key = get_delegations_key(&signed_delegation.message.validator_pubkey);
-    
+
             // Attempt to get the existing delegations from the cache.
             let delegations: Option<Vec<SignedDelegation>> =
                 self.get(&key).await.map_err(AuctioneerError::RedisError)?;
-    
-            // Append the new delegation to the existing delegations or create a new Vec if none exist.
-            let mut all_delegations = match delegations {
+
+            // Append the new delegation to the existing delegations or create a new Vec if none
+            // exist.
+            let all_delegations = match delegations {
                 Some(mut delegations) => {
                     delegations.push(signed_delegation);
                     delegations
                 }
                 None => Vec::from([signed_delegation]),
             };
-    
+
             // Save the updated delegations back to the cache.
             self.set(&key, &all_delegations, None).await.map_err(AuctioneerError::RedisError)?;
         }
@@ -576,20 +577,22 @@ impl Auctioneer for RedisCache {
     ) -> Result<(), AuctioneerError> {
         for signed_revocation in &signed_revocations {
             let key = get_delegations_key(&signed_revocation.message.validator_pubkey);
-    
+
             // Attempt to get the existing delegations from the cache.
             let mut delegations: Vec<SignedDelegation> =
                 self.get(&key).await.map_err(AuctioneerError::RedisError)?.unwrap_or_default();
-    
+
             // Filter out the revoked delegation.
             let updated_delegations = delegations.retain(|delegation| {
                 signed_revocations.iter().all(|revocation| {
                     delegation.message.delegatee_pubkey != revocation.message.delegatee_pubkey
                 })
             });
-    
+
             // Save the updated delegations back to the cache.
-            self.set(&key, &updated_delegations, None).await.map_err(AuctioneerError::RedisError)?;
+            self.set(&key, &updated_delegations, None)
+                .await
+                .map_err(AuctioneerError::RedisError)?;
         }
 
         Ok(())
@@ -607,7 +610,7 @@ impl Auctioneer for RedisCache {
             self.get(&key).await.map_err(AuctioneerError::RedisError)?;
 
         // Append the new constraints to the existing constraints or create a new Vec if none exist.
-        let mut all_constraints = match prev_constraints {
+        let all_constraints = match prev_constraints {
             Some(mut prev_constraints) => {
                 prev_constraints.push(constraints);
                 prev_constraints
@@ -1100,6 +1103,14 @@ impl Auctioneer for RedisCache {
         Ok(())
     }
 
+    async fn get_header_tx_root(
+        &self,
+        block_hash: &Hash32,
+    ) -> Result<Option<Node>, AuctioneerError> {
+        let key = get_header_tx_root_key(block_hash);
+        Ok(self.get(&key).await?)
+    }
+
     async fn save_header_submission_and_update_top_bid(
         &self,
         submission: &SignedHeaderSubmission,
@@ -1114,6 +1125,10 @@ impl Auctioneer for RedisCache {
         if !cancellations_enabled && !is_bid_above_floor {
             return Ok(None);
         }
+
+        // Cache the transaction root for the header
+        let key = get_header_tx_root_key(submission.block_hash());
+        self.set(&key, &submission.transactions_root(), Some(24)).await?;
 
         // Sign builder bid with relay pubkey.
         let builder_bid = SignedBuilderBid::from_header_submission(
@@ -1174,6 +1189,44 @@ impl Auctioneer for RedisCache {
         let key_str = format!("{proposer_pub_key:?}");
         let proposer_info: Option<ProposerInfo> =
             self.hget(PROPOSER_WHITELIST_KEY, &key_str).await?;
+        Ok(proposer_info.is_some())
+    }
+
+    async fn update_primev_proposers(
+        &self,
+        primev_proposers: &Vec<BlsPublicKey>,
+    ) -> Result<(), AuctioneerError> {
+        // get keys
+        let proposer_keys: Vec<String> =
+            primev_proposers.iter().map(|proposer| format!("{:?}", proposer)).collect();
+
+        // add or update proposers
+        for proposer in primev_proposers {
+            let key_str = format!("{:?}", proposer);
+            self.hset(PRIMEV_PROPOSERS_KEY, &key_str, &proposer).await?;
+        }
+
+        // remove any proposers that are no longer in the list
+        let proposer_info: Option<HashMap<String, BlsPublicKey>> =
+            self.hgetall(PRIMEV_PROPOSERS_KEY).await?;
+
+        if let Some(proposer_info) = proposer_info {
+            for key in proposer_info.keys() {
+                if !proposer_keys.contains(key) {
+                    self.hdel(PRIMEV_PROPOSERS_KEY, key).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn is_primev_proposer(
+        &self,
+        proposer_pub_key: &BlsPublicKey,
+    ) -> Result<bool, AuctioneerError> {
+        let key_str = format!("{proposer_pub_key:?}");
+        let proposer_info: Option<BlsPublicKey> = self.hget(PRIMEV_PROPOSERS_KEY, &key_str).await?;
         Ok(proposer_info.is_some())
     }
 
@@ -1308,19 +1361,34 @@ impl Auctioneer for RedisCache {
 
         return self.set_lock(HOUSEKEEPER_LOCK_KEY, leader_id, HOUSEKEEPER_LOCK_EXPIRY_MS).await;
     }
+
+    async fn kill_switch_enabled(&self) -> Result<bool, AuctioneerError> {
+        let kill_switch: Option<bool> = self.get(KILL_SWITCH).await?;
+        Ok(kill_switch.unwrap_or_default())
+    }
+
+    async fn enable_kill_switch(&self) -> Result<(), AuctioneerError> {
+        self.set(KILL_SWITCH, &true, None).await?;
+        Ok(())
+    }
+
+    async fn disable_kill_switch(&self) -> Result<(), AuctioneerError> {
+        self.set(KILL_SWITCH, &false, None).await?;
+        Ok(())
+    }
 }
 
 fn get_top_bid(bid_values: &HashMap<String, U256>) -> Option<(String, U256)> {
     bid_values.iter().max_by_key(|&(_, value)| value).map(|(key, value)| (key.clone(), *value))
 }
 
-#[cfg(redis_cache_test)]
+#[cfg(test)]
 mod tests {
 
     use super::*;
     use ethereum_consensus::clock::get_current_unix_time_in_nanos;
     use helix_common::capella::{self, ExecutionPayloadHeader};
-    use reth_primitives::revm_primitives::bitvec::vec;
+
     use serde::{Deserialize, Serialize};
 
     impl RedisCache {
@@ -1517,10 +1585,13 @@ mod tests {
             public_key: prev_builder_pubkey.clone(),
         };
 
-        let prev_best_bid = SignedBuilderBid::Capella(capella::SignedBuilderBid {
-            message: capella_builder_bid.clone(),
-            ..Default::default()
-        });
+        let prev_best_bid = SignedBuilderBid::Capella(
+            capella::SignedBuilderBid {
+                message: capella_builder_bid.clone(),
+                ..Default::default()
+            },
+            None,
+        );
 
         let res = cache
             .save_builder_bid(
@@ -1582,10 +1653,13 @@ mod tests {
         // Test with floor_value greater than top_bid_value
         let higher_floor_value = U256::from(70);
         capella_builder_bid.value = higher_floor_value;
-        let floor_bid = SignedBuilderBid::Capella(capella::SignedBuilderBid {
-            message: capella_builder_bid.clone(),
-            ..Default::default()
-        });
+        let floor_bid = SignedBuilderBid::Capella(
+            capella::SignedBuilderBid {
+                message: capella_builder_bid.clone(),
+                ..Default::default()
+            },
+            None,
+        );
 
         let key_floor_bid = get_floor_bid_key(slot, &parent_hash, &proposer_pub_key);
         let res = cache.set(&key_floor_bid, &floor_bid, None).await;
@@ -1696,7 +1770,7 @@ mod tests {
 
         let mut capella_bid = capella::SignedBuilderBid::default();
         capella_bid.message.value = U256::from(1999);
-        let best_bid = SignedBuilderBid::Capella(capella_bid);
+        let best_bid = SignedBuilderBid::Capella(capella_bid, None);
 
         // Save the best bid
         let key = get_cache_get_header_response_key(slot, &parent_hash, &proposer_pub_key);
@@ -1775,7 +1849,7 @@ mod tests {
             ..Default::default()
         };
         bid.message.header.block_hash = block_hash;
-        let builder_bid = SignedBuilderBid::Capella(bid);
+        let builder_bid = SignedBuilderBid::Capella(bid, None);
 
         // Test: save_builder_bid
         let res = cache
@@ -2016,22 +2090,28 @@ mod tests {
 
         // Save 2 builder bids. builder bid 1 > builder bid 2
         let builder_pub_key_1 = BlsPublicKey::try_from([1u8; 48].as_ref()).unwrap();
-        let builder_bid_1 = SignedBuilderBid::Capella(capella::SignedBuilderBid {
-            message: helix_common::eth::capella::BuilderBid {
-                value: U256::from(100),
+        let builder_bid_1 = SignedBuilderBid::Capella(
+            capella::SignedBuilderBid {
+                message: helix_common::eth::capella::BuilderBid {
+                    value: U256::from(100),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
-            ..Default::default()
-        });
+            None,
+        );
 
         let builder_pub_key_2 = BlsPublicKey::try_from([2u8; 48].as_ref()).unwrap();
-        let builder_bid_2 = SignedBuilderBid::Capella(capella::SignedBuilderBid {
-            message: helix_common::eth::capella::BuilderBid {
-                value: U256::from(50),
+        let builder_bid_2 = SignedBuilderBid::Capella(
+            capella::SignedBuilderBid {
+                message: helix_common::eth::capella::BuilderBid {
+                    value: U256::from(50),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
-            ..Default::default()
-        });
+            None,
+        );
 
         // Save both builder bids
         let set_result = cache
@@ -2590,39 +2670,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_save_and_get_inclusion_proof() {
+    async fn test_kill_switch() {
         let cache = RedisCache::new("redis://127.0.0.1/", Vec::new()).await.unwrap();
         cache.clear_cache().await.unwrap();
 
-        let slot = 42;
-        let proposer_pub_key = BlsPublicKey::default();
-        let bid_block_hash = Hash32::try_from([5u8; 32].as_ref()).unwrap();
+        let result = cache.kill_switch_enabled().await.unwrap();
+        assert!(!result, "Kill switch should be disabled by default");
 
-        let inclusion_proof =
-            InclusionProofs { proofs: vec!["proof1".to_string(), "proof2".to_string()] };
+        cache.enable_kill_switch().await.unwrap();
 
-        // Test: Save inclusion proof
-        let save_result = cache
-            .save_inclusion_proof(slot, &proposer_pub_key, &bid_block_hash, &inclusion_proof)
-            .await;
-        assert!(save_result.is_ok(), "Failed to save inclusion proof");
+        let result = cache.kill_switch_enabled().await.unwrap();
+        assert!(result, "Kill switch should be enabled");
 
-        // Test: Get inclusion proof
-        let get_result = cache.get_inclusion_proof(slot, &proposer_pub_key, &bid_block_hash).await;
-        assert!(get_result.is_ok(), "Failed to get inclusion proof");
-        assert_eq!(
-            get_result.unwrap(),
-            Some(inclusion_proof.clone()),
-            "Mismatch in fetched inclusion proof"
-        );
+        cache.disable_kill_switch().await.unwrap();
 
-        // Test: Get non-existent inclusion proof
-        let non_existent_proof =
-            cache.get_inclusion_proof(slot + 1, &proposer_pub_key, &bid_block_hash).await;
-        assert!(non_existent_proof.is_ok(), "Failed to get non-existent inclusion proof");
-        assert!(
-            non_existent_proof.unwrap().is_none(),
-            "Expected None for non-existent inclusion proof"
-        );
+        let result = cache.kill_switch_enabled().await.unwrap();
+        assert!(!result, "Kill switch should be disabled");
     }
 }

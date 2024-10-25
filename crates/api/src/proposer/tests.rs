@@ -1031,7 +1031,7 @@ mod proposer_api_tests {
         let req_payload_bytes =
             load_bytes(current_dir.to_str().expect("Failed to convert path to string"));
 
-        let mut decoded_submission: SignedBlindedBeaconBlock =
+        let decoded_submission: SignedBlindedBeaconBlock =
             serde_json::from_slice(&req_payload_bytes).unwrap();
 
         let chain_info = ChainInfo::for_holesky();
@@ -1039,25 +1039,22 @@ mod proposer_api_tests {
 
         let public_key = BlsPublicKey::try_from(hex::decode("0xb74ed6ac039a55136d5493333c32ce5b2e0152e4121b5b850830383ab836e22fb5f4f8568c61f12d0646dc0eb0c6d861" ).unwrap().as_slice()).unwrap();
 
-        match decoded_submission {
-            SignedBlindedBeaconBlock::Deneb(mut block) => {
-                let result = verify_signed_consensus_message(
-                    &mut block.message,
-                    &block.signature,
-                    &public_key,
-                    &chain_info.context,
-                    Some(slot),
-                    Some(chain_info.genesis_validators_root),
-                );
+        if let SignedBlindedBeaconBlock::Deneb(mut block) = decoded_submission {
+            let result = verify_signed_consensus_message(
+                &mut block.message,
+                &block.signature,
+                &public_key,
+                &chain_info.context,
+                Some(slot),
+                Some(chain_info.genesis_validators_root),
+            );
 
-                match result {
-                    Ok(_) => {}
-                    Err(e) => {
-                        println!("Error: {:?}", e);
-                    }
+            match result {
+                Ok(_) => {}
+                Err(e) => {
+                    println!("Error: {:?}", e);
                 }
             }
-            _ => {}
         }
     }
 }

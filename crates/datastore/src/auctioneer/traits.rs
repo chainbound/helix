@@ -1,16 +1,23 @@
-use std::collections::HashMap;
-
 use async_trait::async_trait;
 use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 use helix_common::{
-    api::{builder_api::TopBidUpdate, constraints_api::{SignedDelegation, SignedRevocation}}, bid_submission::{
+    api::constraints_api::{SignedDelegation, SignedRevocation},
+    bellatrix::Node,
+    bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, builder_info::BuilderInfo, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::{InclusionProofs, SignedConstraintsWithProofData}, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, ProposerInfo
+    },
+    builder_info::BuilderInfo,
+    eth::SignedBuilderBid,
+    pending_block::PendingBlock,
+    proofs::{InclusionProofs, SignedConstraintsWithProofData},
+    signing::RelaySigningContext,
+    versioned_payload::PayloadAndBlobs,
+    ProposerInfo,
 };
 use helix_database::BuilderInfoDocument;
 
 use crate::{error::AuctioneerError, types::SaveBidAndUpdateTopBidResponse};
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::Stream;
 
 #[async_trait]
 #[auto_impl::auto_impl(Arc)]
@@ -19,7 +26,7 @@ pub trait Auctioneer: Send + Sync + Clone {
         &self,
         pub_key: BlsPublicKey,
     ) -> Result<Vec<SignedDelegation>, AuctioneerError>;
-    
+
     async fn save_validator_delegations(
         &self,
         signed_delegations: Vec<SignedDelegation>,
@@ -39,7 +46,7 @@ pub trait Auctioneer: Send + Sync + Clone {
         &self,
         slot: u64,
     ) -> Result<Option<Vec<SignedConstraintsWithProofData>>, AuctioneerError>;
-    
+
     async fn save_inclusion_proof(
         &self,
         slot: u64,
@@ -53,7 +60,7 @@ pub trait Auctioneer: Send + Sync + Clone {
         proposer_pub_key: &BlsPublicKey,
         bid_block_hash: &Hash32,
     ) -> Result<Option<InclusionProofs>, AuctioneerError>;
-        
+
     async fn get_last_slot_delivered(&self) -> Result<Option<u64>, AuctioneerError>;
     async fn check_and_set_last_slot_and_hash_delivered(
         &self,
@@ -68,7 +75,9 @@ pub trait Auctioneer: Send + Sync + Clone {
         proposer_pub_key: &BlsPublicKey,
     ) -> Result<Option<SignedBuilderBid>, AuctioneerError>;
 
-    async fn get_best_bids(&self) -> Box<dyn Stream<Item = Result<Vec<u8>, AuctioneerError>> + Send + Unpin>;
+    async fn get_best_bids(
+        &self,
+    ) -> Box<dyn Stream<Item = Result<Vec<u8>, AuctioneerError>> + Send + Unpin>;
 
     async fn save_execution_payload(
         &self,
@@ -198,7 +207,7 @@ pub trait Auctioneer: Send + Sync + Clone {
     ) -> Result<bool, AuctioneerError>;
 
     async fn get_pending_blocks(&self) -> Result<Vec<PendingBlock>, AuctioneerError>;
-    
+
     async fn save_pending_block_header(
         &self,
         slot: u64,
@@ -206,7 +215,7 @@ pub trait Auctioneer: Send + Sync + Clone {
         block_hash: &Hash32,
         timestamp_ms: u64,
     ) -> Result<(), AuctioneerError>;
-    
+
     async fn save_pending_block_payload(
         &self,
         slot: u64,
@@ -215,8 +224,28 @@ pub trait Auctioneer: Send + Sync + Clone {
         timestamp_ms: u64,
     ) -> Result<(), AuctioneerError>;
 
-    
     /// Try to acquire or renew leadership for the housekeeper.
     /// Returns: true if the housekeeper is the leader, false if it isn't.
     async fn try_acquire_or_renew_leadership(&self, leader_id: &str) -> bool;
+
+    async fn update_primev_proposers(
+        &self,
+        proposer_whitelist: &Vec<BlsPublicKey>,
+    ) -> Result<(), AuctioneerError>;
+
+    async fn is_primev_proposer(
+        &self,
+        proposer_pub_key: &BlsPublicKey,
+    ) -> Result<bool, AuctioneerError>;
+
+    async fn get_header_tx_root(
+        &self,
+        block_hash: &Hash32,
+    ) -> Result<Option<Node>, AuctioneerError>;
+
+    async fn kill_switch_enabled(&self) -> Result<bool, AuctioneerError>;
+
+    async fn enable_kill_switch(&self) -> Result<(), AuctioneerError>;
+
+    async fn disable_kill_switch(&self) -> Result<(), AuctioneerError>;
 }

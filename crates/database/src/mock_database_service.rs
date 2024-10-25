@@ -10,10 +10,20 @@ use ethereum_consensus::{
 };
 use helix_common::{
     api::{
-        builder_api::BuilderGetValidatorsResponseEntry, constraints_api::{SignedDelegation, SignedRevocation}, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
-    }, bid_submission::{
+        builder_api::BuilderGetValidatorsResponseEntry,
+        constraints_api::{SignedDelegation, SignedRevocation},
+        data_api::BidFilters,
+        proposer_api::ValidatorRegistrationInfo,
+    },
+    bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, deneb::SignedValidatorRegistration, simulator::BlockSimError, versioned_payload::PayloadAndBlobs, BuilderInfo, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary
+    },
+    deneb::SignedValidatorRegistration,
+    simulator::BlockSimError,
+    versioned_payload::PayloadAndBlobs,
+    BuilderInfo, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace,
+    HeaderSubmissionTrace, ProposerInfo, SignedValidatorRegistrationEntry, SubmissionTrace,
+    ValidatorPreferences, ValidatorSummary,
 };
 
 use crate::{
@@ -47,7 +57,6 @@ impl DatabaseService for MockDatabaseService {
         &self,
         _entry: ValidatorRegistrationInfo,
         _pool_name: Option<String>,
-
     ) -> Result<(), DatabaseError> {
         Ok(())
     }
@@ -61,8 +70,7 @@ impl DatabaseService for MockDatabaseService {
     async fn is_registration_update_required(
         &self,
         _registration: &SignedValidatorRegistration,
-    ) -> Result<bool, DatabaseError>
-    {
+    ) -> Result<bool, DatabaseError> {
         Ok(true)
     }
     async fn get_validator_registration(
@@ -171,10 +179,7 @@ impl DatabaseService for MockDatabaseService {
         Ok(vec![])
     }
 
-    async fn check_builder_api_key(
-        &self,
-        api_key: &str,
-    ) -> Result<bool, DatabaseError> {
+    async fn check_builder_api_key(&self, api_key: &str) -> Result<bool, DatabaseError> {
         if api_key == "valid" {
             Ok(true)
         } else {
@@ -213,11 +218,8 @@ impl DatabaseService for MockDatabaseService {
         _filters: &BidFilters,
         _validator_preferences: Arc<ValidatorPreferences>,
     ) -> Result<Vec<DeliveredPayloadDocument>, DatabaseError> {
-        let doc = DeliveredPayloadDocument {
-            bid_trace: Default::default(),
-            block_number: 0,
-            num_txs: 0,
-        };
+        let doc =
+            DeliveredPayloadDocument { bid_trace: Default::default(), block_number: 0, num_txs: 0 };
 
         Ok(vec![doc])
     }
@@ -229,6 +231,7 @@ impl DatabaseService for MockDatabaseService {
         _public_key: BlsPublicKey,
         _best_block_hash: ByteVector<32>,
         _trace: GetHeaderTrace,
+        _user_agent: Option<String>,
     ) -> Result<(), DatabaseError> {
         Ok(())
     }
@@ -279,5 +282,20 @@ impl DatabaseService for MockDatabaseService {
         } else {
             Ok(None)
         }
+    }
+
+    async fn update_trusted_builders(
+        &self,
+        validator_keys: &Vec<BlsPublicKey>,
+        _trusted_builders: &Vec<String>,
+    ) -> Result<(), DatabaseError> {
+        println!("updating trusted builders: {:?}", validator_keys);
+        Ok(())
+    }
+
+    async fn get_validator_registrations(
+        &self,
+    ) -> Result<Vec<SignedValidatorRegistrationEntry>, DatabaseError> {
+        Ok(vec![])
     }
 }

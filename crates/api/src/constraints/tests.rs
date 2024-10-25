@@ -6,9 +6,22 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use axum::body::Body;
-    use ethereum_consensus::{builder::ValidatorRegistration, primitives::{BlsPublicKey, BlsSignature}, ssz};
-    use helix_common::{api::{builder_api::{BuilderGetValidatorsResponse, BuilderGetValidatorsResponseEntry}, constraints_api::{SignedDelegation, SignedRevocation}, proposer_api::ValidatorRegistrationInfo}, bellatrix::{ByteVector, List}, deneb::SignedValidatorRegistration, proofs::SignedConstraints, Route, ValidatorPreferences};
-    use helix_common::api::constraints_api::MAX_CONSTRAINTS_PER_SLOT;
+    use ethereum_consensus::{
+        builder::ValidatorRegistration,
+        primitives::{BlsPublicKey, BlsSignature},
+        ssz,
+    };
+    use helix_common::{
+        api::{
+            builder_api::{BuilderGetValidatorsResponse, BuilderGetValidatorsResponseEntry},
+            constraints_api::{SignedDelegation, SignedRevocation, MAX_CONSTRAINTS_PER_SLOT},
+            proposer_api::ValidatorRegistrationInfo,
+        },
+        bellatrix::{ByteVector, List},
+        deneb::SignedValidatorRegistration,
+        proofs::SignedConstraints,
+        Route, ValidatorPreferences,
+    };
     use helix_database::MockDatabaseService;
     use helix_datastore::MockAuctioneer;
     use helix_housekeeper::{ChainUpdate, SlotUpdate};
@@ -16,13 +29,21 @@ mod tests {
     use hyper::Request;
     use rand::Rng;
     use reqwest::{Client, Response};
-    use serial_test::serial;
-    use tokio::sync::{mpsc::{Receiver, Sender}, oneshot};
-    use tracing::info;
     use reth_primitives::hex;
+    use serial_test::serial;
+    use tokio::sync::{
+        mpsc::{Receiver, Sender},
+        oneshot,
+    };
+    use tracing::info;
 
-    use crate::{builder::{api::BuilderApi, mock_simulator::MockSimulator}, constraints::api::ConstraintsApi, gossiper::mock_gossiper::MockGossiper, test_utils::constraints_api_app};
-    
+    use crate::{
+        builder::{api::BuilderApi, mock_simulator::MockSimulator},
+        constraints::api::ConstraintsApi,
+        gossiper::mock_gossiper::MockGossiper,
+        test_utils::constraints_api_app,
+    };
+
     // +++ HELPER VARIABLES +++
     const ADDRESS: &str = "0.0.0.0";
     const PORT: u16 = 3000;
@@ -98,7 +119,7 @@ mod tests {
             }
         }
     }
-    
+
     fn get_dummy_slot_update(
         head_slot: Option<u64>,
         submission_slot: Option<u64>,
@@ -131,7 +152,6 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-
     async fn send_request(req_url: &str, encoding: Encoding, req_payload: Vec<u8>) -> Response {
         let client = Client::new();
         let request = client.post(req_url).header("accept", "*/*");
@@ -145,13 +165,13 @@ mod tests {
         HttpServiceConfig,
         Arc<ConstraintsApi<MockAuctioneer, MockDatabaseService>>,
         Arc<BuilderApi<MockAuctioneer, MockDatabaseService, MockSimulator, MockGossiper>>,
-        Receiver<Sender<ChainUpdate>>
+        Receiver<Sender<ChainUpdate>>,
     ) {
         let (tx, rx) = oneshot::channel();
         let http_config = HttpServiceConfig::new(ADDRESS, PORT);
         let bind_address = http_config.bind_address();
 
-        let (router, constraints_api, builder_api, slot_update_receiver ) = constraints_api_app();
+        let (router, constraints_api, builder_api, slot_update_receiver) = constraints_api_app();
 
         // Run the app in a background task
         tokio::spawn(async move {
@@ -238,34 +258,32 @@ mod tests {
         tracing_subscriber::fmt::init();
 
         // Start the server
-        let (tx, http_config, _constraints_api, _builder_api, mut slot_update_receiver) = start_api_server().await;
+        let (tx, http_config, _constraints_api, _builder_api, mut slot_update_receiver) =
+            start_api_server().await;
 
         let slot_update_sender = slot_update_receiver.recv().await.unwrap();
         send_dummy_slot_update(slot_update_sender.clone(), None, None, None).await;
 
-        let test_constraint: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> = serde_json::from_str(_get_signed_constraint_conflict_1_json()).unwrap();
+        let test_constraint: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> =
+            serde_json::from_str(_get_signed_constraint_conflict_1_json()).unwrap();
 
         // Submit constraints
-        let req_url = format!("{}{}", http_config.base_url(), Route::SubmitBuilderConstraints.path());
+        let req_url =
+            format!("{}{}", http_config.base_url(), Route::SubmitBuilderConstraints.path());
 
         // Send JSON encoded request
-        let resp = send_request(
-            &req_url,
-            Encoding::Json,
-            serde_json::to_vec(&test_constraint).unwrap(),
-        )
-        .await;
+        let resp =
+            send_request(&req_url, Encoding::Json, serde_json::to_vec(&test_constraint).unwrap())
+                .await;
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
 
-        let test_constraint: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> = serde_json::from_str(_get_signed_constraint_conflict_2_json()).unwrap();
+        let test_constraint: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> =
+            serde_json::from_str(_get_signed_constraint_conflict_2_json()).unwrap();
 
         // Send JSON encoded request
-        let resp = send_request(
-            &req_url,
-            Encoding::Json,
-            serde_json::to_vec(&test_constraint).unwrap(),
-        )
-        .await;
+        let resp =
+            send_request(&req_url, Encoding::Json, serde_json::to_vec(&test_constraint).unwrap())
+                .await;
 
         // This will result in a conflict as 2 constraints are submitted with top = true
         assert_eq!(resp.status(), reqwest::StatusCode::CONFLICT);
@@ -281,15 +299,18 @@ mod tests {
         tracing_subscriber::fmt::init();
 
         // Start the server
-        let (tx, http_config, _constraints_api, _builder_api, mut slot_update_receiver) = start_api_server().await;
+        let (tx, http_config, _constraints_api, _builder_api, mut slot_update_receiver) =
+            start_api_server().await;
 
         let slot_update_sender = slot_update_receiver.recv().await.unwrap();
         send_dummy_slot_update(slot_update_sender.clone(), None, None, None).await;
 
-        let test_constraints: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> = serde_json::from_str(_get_signed_constraints_json()).unwrap();
+        let test_constraints: List<SignedConstraints, MAX_CONSTRAINTS_PER_SLOT> =
+            serde_json::from_str(_get_signed_constraints_json()).unwrap();
 
         // Submit constraints
-        let req_url = format!("{}{}", http_config.base_url(), Route::SubmitBuilderConstraints.path());
+        let req_url =
+            format!("{}{}", http_config.base_url(), Route::SubmitBuilderConstraints.path());
 
         // Send SSZ encoded request
         let resp = send_request(
@@ -304,11 +325,7 @@ mod tests {
         let slot = 32;
 
         // Get constraints
-        let req_url = format!(
-            "{}{}",
-            http_config.base_url(),
-            Route::GetBuilderConstraints.path()
-        );
+        let req_url = format!("{}{}", http_config.base_url(), Route::GetBuilderConstraints.path());
 
         let resp = reqwest::Client::new()
             .get(req_url)
@@ -320,9 +337,10 @@ mod tests {
 
         // Ensure the response is OK
         assert_eq!(resp.status(), reqwest::StatusCode::OK);
-        
+
         // Print the response body
-        let body: Vec<SignedConstraints> = serde_json::from_str(&resp.text().await.unwrap()).unwrap();
+        let body: Vec<SignedConstraints> =
+            serde_json::from_str(&resp.text().await.unwrap()).unwrap();
         info!("Response body: {:?}", body);
         // TODO: clean this
         let constraint = body.first().unwrap().clone();
@@ -340,9 +358,11 @@ mod tests {
 
         let (tx, http_config, _api, _, _) = start_api_server().await;
 
-        let test_delegation: SignedDelegation = serde_json::from_str(_get_signed_delegation()).unwrap();
+        let test_delegation: SignedDelegation =
+            serde_json::from_str(_get_signed_delegation()).unwrap();
 
-        let req_url = format!("{}{}", http_config.base_url(), Route::DelegateSubmissionRights.path());
+        let req_url =
+            format!("{}{}", http_config.base_url(), Route::DelegateSubmissionRights.path());
         let req_payload = serde_json::to_vec(&test_delegation).unwrap();
 
         // Send JSON encoded request
@@ -358,14 +378,17 @@ mod tests {
         tracing_subscriber::fmt::init();
 
         // Start the server
-        let (tx, http_config, _constraints_api, _builder_api, mut slot_update_receiver) = start_api_server().await;
+        let (tx, http_config, _constraints_api, _builder_api, mut slot_update_receiver) =
+            start_api_server().await;
 
         let slot_update_sender = slot_update_receiver.recv().await.unwrap();
         send_dummy_slot_update(slot_update_sender.clone(), None, None, None).await;
 
-        let test_delegation: SignedDelegation = serde_json::from_str(_get_signed_delegation()).unwrap();
+        let test_delegation: SignedDelegation =
+            serde_json::from_str(_get_signed_delegation()).unwrap();
 
-        let req_url = format!("{}{}", http_config.base_url(), Route::DelegateSubmissionRights.path());
+        let req_url =
+            format!("{}{}", http_config.base_url(), Route::DelegateSubmissionRights.path());
         let req_payload = serde_json::to_vec(&test_delegation).unwrap();
 
         // Send JSON encoded request
@@ -375,11 +398,7 @@ mod tests {
         // Get delegations
         let slot = 33;
 
-        let req_url = format!(
-            "{}{}",
-            http_config.base_url(),
-            Route::GetBuilderDelegations.path()
-        );
+        let req_url = format!("{}{}", http_config.base_url(), Route::GetBuilderDelegations.path());
 
         let resp = reqwest::Client::new()
             .get(req_url)
@@ -403,7 +422,8 @@ mod tests {
     async fn test_revoke_submission_rights_ok() {
         let (tx, http_config, api, _, _) = start_api_server().await;
 
-        let test_revocation: SignedRevocation = serde_json::from_str(_get_signed_delegation()).unwrap();
+        let test_revocation: SignedRevocation =
+            serde_json::from_str(_get_signed_delegation()).unwrap();
 
         let req_url = format!("{}{}", http_config.base_url(), Route::RevokeSubmissionRights.path());
         let req_payload = serde_json::to_vec(&test_revocation).unwrap();

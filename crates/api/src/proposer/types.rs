@@ -5,7 +5,7 @@ use ethereum_consensus::{
 };
 use helix_common::{
     deneb::SignedBlockContents, signed_proposal::VersionedSignedProposal,
-    versioned_payload::PayloadAndBlobs, Filtering, ValidatorPreferences,
+    versioned_payload::PayloadAndBlobs, Filtering,
 };
 use serde::Deserialize;
 
@@ -16,7 +16,8 @@ pub(crate) const PATH_PROPOSER_API: &str = "/eth/v1/builder";
 pub(crate) const PATH_STATUS: &str = "/status";
 pub(crate) const PATH_REGISTER_VALIDATORS: &str = "/validators";
 pub(crate) const PATH_GET_HEADER: &str = "/header/:slot/:parent_hash/:pubkey";
-pub(crate) const PATH_GET_HEADER_WITH_PROOFS: &str = "/header_with_proofs/:slot/:parent_hash/:pubkey";
+pub(crate) const PATH_GET_HEADER_WITH_PROOFS: &str =
+    "/header_with_proofs/:slot/:parent_hash/:pubkey";
 pub(crate) const PATH_GET_PAYLOAD: &str = "/blinded_blocks";
 
 pub(crate) const GET_HEADER_REQUEST_CUTOFF_MS: i64 = 3000;
@@ -161,6 +162,9 @@ pub struct PreferencesHeader {
     /// This allows for limiting submissions to a trusted set of builders.
     pub trusted_builders: Option<Vec<String>>,
 
-    /// Allows validators to express a preference for whether a delay should be applied to get headers or not.
+    /// Allows validators to express a preference for whether a delay should be applied to get
+    /// headers or not.
     pub header_delay: Option<bool>,
+
+    pub gossip_blobs: Option<bool>,
 }

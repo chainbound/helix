@@ -24,6 +24,9 @@ use crate::{
     proofs::InclusionProofs,
 };
 
+/// Index of the `blob_kzg_commitments` leaf in the `BeaconBlockBody` tree post-deneb.
+pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct BidRequest {
     #[serde(with = "ethereum_consensus::serde::as_str")]

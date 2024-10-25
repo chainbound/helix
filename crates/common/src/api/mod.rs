@@ -10,6 +10,7 @@ pub(crate) const PATH_SUBMIT_BLOCK: &str = "/blocks";
 pub(crate) const PATH_BUILDER_BLOCKS_WITH_PROOFS: &str = "/blocks_with_proofs";
 pub(crate) const PATH_SUBMIT_BLOCK_OPTIMISTIC_V2: &str = "/blocks_optimistic_v2";
 pub(crate) const PATH_SUBMIT_HEADER: &str = "/headers";
+pub(crate) const PATH_CANCEL_BID: &str = "/cancel_bid";
 pub(crate) const PATH_GET_TOP_BID: &str = "/top_bid";
 pub(crate) const PATH_BUILDER_CONSTRAINTS: &str = "/constraints";
 pub(crate) const PATH_BUILDER_CONSTRAINTS_STREAM: &str = "/constraints_stream";

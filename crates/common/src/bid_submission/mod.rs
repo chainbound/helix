@@ -1,4 +1,5 @@
 pub mod bid_trace;
+pub mod cancellation;
 pub mod submission;
 pub mod v2;
 
@@ -63,6 +64,8 @@ pub trait BidSubmission {
     fn withdrawals(&self) -> Option<&[Withdrawal]>;
 
     fn withdrawals_root(&self) -> Option<Node>;
+
+    fn transactions_root(&self) -> Option<Node>;
 
     fn consensus_version(&self) -> Fork;
 

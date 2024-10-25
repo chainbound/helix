@@ -23,36 +23,36 @@ impl SignedBuilderBidWrapper {
     }
 }
 
-impl Into<TopBidUpdate> for SignedBuilderBidWrapper {
-    fn into(self) -> TopBidUpdate {
-        match self.bid {
+impl From<SignedBuilderBidWrapper> for TopBidUpdate {
+    fn from(val: SignedBuilderBidWrapper) -> Self {
+        match val.bid {
             SignedBuilderBid::Bellatrix(bid, _) => TopBidUpdate {
-                timestamp: self.received_at_ms,
-                slot: self.slot,
+                timestamp: val.received_at_ms,
+                slot: val.slot,
                 block_number: bid.message.header.block_number,
                 block_hash: bid.message.header.block_hash,
                 parent_hash: bid.message.header.parent_hash,
-                builder_pubkey: self.builder_pub_key,
+                builder_pubkey: val.builder_pub_key,
                 fee_recipient: bid.message.header.fee_recipient,
                 value: bid.message.value,
             },
             SignedBuilderBid::Capella(bid, _) => TopBidUpdate {
-                timestamp: self.received_at_ms,
-                slot: self.slot,
+                timestamp: val.received_at_ms,
+                slot: val.slot,
                 block_number: bid.message.header.block_number,
                 block_hash: bid.message.header.block_hash,
                 parent_hash: bid.message.header.parent_hash,
-                builder_pubkey: self.builder_pub_key,
+                builder_pubkey: val.builder_pub_key,
                 fee_recipient: bid.message.header.fee_recipient,
                 value: bid.message.value,
             },
             SignedBuilderBid::Deneb(bid, _) => TopBidUpdate {
-                timestamp: self.received_at_ms,
-                slot: self.slot,
+                timestamp: val.received_at_ms,
+                slot: val.slot,
                 block_number: bid.message.header.block_number,
                 block_hash: bid.message.header.block_hash,
                 parent_hash: bid.message.header.parent_hash,
-                builder_pubkey: self.builder_pub_key,
+                builder_pubkey: val.builder_pub_key,
                 fee_recipient: bid.message.header.fee_recipient,
                 value: bid.message.value,
             },

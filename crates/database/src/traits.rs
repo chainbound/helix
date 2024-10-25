@@ -8,10 +8,21 @@ use ethereum_consensus::{
 
 use helix_common::{
     api::{
-        builder_api::BuilderGetValidatorsResponseEntry, constraints_api::{SignedDelegation, SignedRevocation}, data_api::BidFilters, proposer_api::ValidatorRegistrationInfo
-    }, bid_submission::{
+        builder_api::BuilderGetValidatorsResponseEntry,
+        constraints_api::{SignedDelegation, SignedRevocation},
+        data_api::BidFilters,
+        proposer_api::ValidatorRegistrationInfo,
+    },
+    bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, builder_info::BuilderInfo, deneb::SignedValidatorRegistration, simulator::BlockSimError, validator_preferences, versioned_payload::PayloadAndBlobs, GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace, HeaderSubmissionTrace, ProposerInfo, SignedValidatorRegistrationEntry, SubmissionTrace, ValidatorPreferences, ValidatorSummary
+    },
+    builder_info::BuilderInfo,
+    deneb::SignedValidatorRegistration,
+    simulator::BlockSimError,
+    versioned_payload::PayloadAndBlobs,
+    GetHeaderTrace, GetPayloadTrace, GossipedHeaderTrace, GossipedPayloadTrace,
+    HeaderSubmissionTrace, ProposerInfo, SignedValidatorRegistrationEntry, SubmissionTrace,
+    ValidatorPreferences, ValidatorSummary,
 };
 
 use crate::{
@@ -110,10 +121,7 @@ pub trait DatabaseService: Send + Sync + Clone {
 
     async fn get_all_builder_infos(&self) -> Result<Vec<BuilderInfoDocument>, DatabaseError>;
 
-    async fn check_builder_api_key(
-        &self,
-        api_key: &str,
-    ) -> Result<bool, DatabaseError>;
+    async fn check_builder_api_key(&self, api_key: &str) -> Result<bool, DatabaseError>;
 
     async fn db_demote_builder(
         &self,
@@ -146,6 +154,7 @@ pub trait DatabaseService: Send + Sync + Clone {
         public_key: BlsPublicKey,
         best_block_hash: ByteVector<32>,
         trace: GetHeaderTrace,
+        user_agent: Option<String>,
     ) -> Result<(), DatabaseError>;
 
     async fn save_failed_get_payload(
@@ -176,8 +185,16 @@ pub trait DatabaseService: Send + Sync + Clone {
 
     async fn get_trusted_proposers(&self) -> Result<Vec<ProposerInfo>, DatabaseError>;
 
-    async fn get_validator_pool_name(
+    async fn get_validator_pool_name(&self, api_key: &str)
+        -> Result<Option<String>, DatabaseError>;
+
+    async fn update_trusted_builders(
         &self,
-        api_key: &str,
-    ) -> Result<Option<String>, DatabaseError>;
+        validator_keys: &Vec<BlsPublicKey>,
+        trusted_builders: &Vec<String>,
+    ) -> Result<(), DatabaseError>;
+
+    async fn get_validator_registrations(
+        &self,
+    ) -> Result<Vec<SignedValidatorRegistrationEntry>, DatabaseError>;
 }

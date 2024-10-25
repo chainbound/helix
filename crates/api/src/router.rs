@@ -86,7 +86,8 @@ pub fn build_router(
                 router = router.route(&route.path(), post(BuilderApiProd::submit_block_v2));
             }
             Route::SubmitBlockWithProofs => {
-                router = router.route(&route.path(), post(BuilderApiProd::submit_block_with_proofs));
+                router =
+                    router.route(&route.path(), post(BuilderApiProd::submit_block_with_proofs));
             }
             Route::SubmitHeader => {
                 router = router.route(&route.path(), post(BuilderApiProd::submit_header));
@@ -102,6 +103,9 @@ pub fn build_router(
             }
             Route::GetBuilderDelegations => {
                 router = router.route(&route.path(), get(BuilderApiProd::delegations));
+            }
+            Route::CancelBid => {
+                router = router.route(&route.path(), post(BuilderApiProd::cancel_bid));
             }
             Route::Status => {
                 router = router.route(&route.path(), get(ProposerApiProd::status));

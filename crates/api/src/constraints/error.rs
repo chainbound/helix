@@ -64,7 +64,7 @@ pub enum ConstraintsApiError {
     MissingProposerInfo,
 
     #[error("Pubkey not authorized to submit constraints: {0}")]
-    PubkeyNotAuthorized(PublicKey)
+    PubkeyNotAuthorized(PublicKey),
 }
 
 impl IntoResponse for ConstraintsApiError {
@@ -72,52 +72,57 @@ impl IntoResponse for ConstraintsApiError {
         match self {
             ConstraintsApiError::HyperError(err) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Hyper error: {err}")).into_response()
-            },
+            }
             ConstraintsApiError::AxumError(err) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Axum error: {err}")).into_response()
-            },
+            }
             ConstraintsApiError::SerdeDecodeError(err) => {
                 (StatusCode::BAD_REQUEST, format!("Serde decode error: {err}")).into_response()
-            },
+            }
             ConstraintsApiError::InvalidConstraints => {
                 (StatusCode::BAD_REQUEST, "Invalid constraints").into_response()
-            },
+            }
             ConstraintsApiError::InvalidDelegation => {
                 (StatusCode::BAD_REQUEST, "Invalid delegation").into_response()
-            },
+            }
             ConstraintsApiError::InvalidRevocation => {
                 (StatusCode::BAD_REQUEST, "Invalid revocation").into_response()
-            },
+            }
             ConstraintsApiError::InvalidSignature => {
                 (StatusCode::BAD_REQUEST, "Invalid signature").into_response()
-            },
+            }
             ConstraintsApiError::NilConstraints => {
                 (StatusCode::BAD_REQUEST, "Constraints field is empty").into_response()
-            },
+            }
             ConstraintsApiError::AuctioneerError(err) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Auctioneer error: {err}")).into_response()
-            },
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Auctioneer error: {err}"))
+                    .into_response()
+            }
             ConstraintsApiError::InternalError => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal error").into_response()
-            },
+            }
             ConstraintsApiError::ConstraintsProofDataError(err) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Constraints proof data error: {err}")).into_response()
-            },
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Constraints proof data error: {err}"))
+                    .into_response()
+            }
             ConstraintsApiError::Conflict(err) => {
                 (StatusCode::CONFLICT, format!("Conflict: {err}")).into_response()
-            },
+            }
             ConstraintsApiError::MaxConstraintsReached => {
                 (StatusCode::BAD_REQUEST, "Max constraints per slot reached").into_response()
             }
             ConstraintsApiError::DatabaseError(err) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {err}")).into_response()
-            },
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {err}"))
+                    .into_response()
+            }
             ConstraintsApiError::MissingProposerInfo => {
                 (StatusCode::BAD_REQUEST, "Missing proposer info").into_response()
-            },
-            ConstraintsApiError::PubkeyNotAuthorized(pubkey) => {
-                (StatusCode::UNAUTHORIZED, format!("Pubkey not authorized to submit constraints: {pubkey}")).into_response()
             }
+            ConstraintsApiError::PubkeyNotAuthorized(pubkey) => (
+                StatusCode::UNAUTHORIZED,
+                format!("Pubkey not authorized to submit constraints: {pubkey}"),
+            )
+                .into_response(),
         }
     }
 }

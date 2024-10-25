@@ -1,8 +1,7 @@
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
-use ethereum_consensus::crypto::{PublicKey, SecretKey};
+use ethereum_consensus::crypto::SecretKey;
 use moka::sync::Cache;
-use reth_primitives::{hex::FromHex, Bytes, U256};
 use tokio::{
     sync::broadcast,
     time::{sleep, timeout},
@@ -20,9 +19,10 @@ use helix_beacon_client::{
     multi_beacon_client::MultiBeaconClient, BlockBroadcaster, MultiBeaconClientTrait,
 };
 use helix_common::{
-    chain_info::ChainInfo, signing::RelaySigningContext, BroadcasterConfig, BuilderInfo, NetworkConfig, RelayConfig
+    chain_info::ChainInfo, signing::RelaySigningContext, BroadcasterConfig, NetworkConfig,
+    RelayConfig,
 };
-use helix_database::{postgres::postgres_db_service::PostgresDatabaseService, BuilderInfoDocument, DatabaseService};
+use helix_database::{postgres::postgres_db_service::PostgresDatabaseService, DatabaseService};
 use helix_datastore::redis::redis_cache::RedisCache;
 use helix_housekeeper::{ChainEventUpdater, Housekeeper};
 
@@ -45,18 +45,7 @@ impl ApiService {
 
         let db = Arc::new(postgres_db);
 
-        let mut builder_infos = db.get_all_builder_infos().await.expect("failed to load builder infos");
-
-        builder_infos.push(BuilderInfoDocument {
-            pub_key: PublicKey::try_from(
-                Bytes::from_hex("0xaa1488eae4b06a1fff840a2b6db167afc520758dc2c8af0dfb57037954df3431b747e2f900fe8805f05d635e9a29717b").unwrap().as_ref()
-            ).expect("failed to convert to public key"),
-            builder_info: BuilderInfo {
-                collateral: U256::MAX / U256::from(4),
-                is_optimistic: true,
-                builder_id: Some("Bolt".to_string())
-            }
-        });
+        let builder_infos = db.get_all_builder_infos().await.expect("failed to load builder infos");
 
         let auctioneer = Arc::new(RedisCache::new(&config.redis.url, builder_infos).await.unwrap());
 
@@ -74,7 +63,7 @@ impl ApiService {
 
         let mut beacon_clients = vec![];
         for cfg in &config.beacon_clients {
-            beacon_clients.push(Arc::new(BeaconClient::from_endpoint_str(&cfg.url)));
+            beacon_clients.push(Arc::new(BeaconClient::from_config(cfg.clone())));
         }
         let multi_beacon_client = Arc::new(MultiBeaconClient::<BeaconClient>::new(beacon_clients));
 
@@ -91,11 +80,8 @@ impl ApiService {
             NetworkConfig::Sepolia => ChainInfo::for_sepolia(),
             NetworkConfig::Holesky => ChainInfo::for_holesky(),
             NetworkConfig::Custom { ref dir_path, ref genesis_validator_root, genesis_time } => {
-                match ChainInfo::for_custom(
-                    dir_path.clone(),
-                    genesis_validator_root.clone(),
-                    genesis_time,
-                ) {
+                match ChainInfo::for_custom(dir_path.clone(), *genesis_validator_root, genesis_time)
+                {
                     Ok(chain_info) => chain_info,
                     Err(err) => {
                         error!("Failed to load custom chain info: {:?}", err);
@@ -110,6 +96,7 @@ impl ApiService {
             multi_beacon_client.clone(),
             auctioneer.clone(),
             config.clone(),
+            chain_info.clone(),
         );
         let mut housekeeper_head_events = head_event_receiver.resubscribe();
         tokio::spawn(async move {
@@ -140,7 +127,7 @@ impl ApiService {
             auctioneer.clone(),
             db.clone(),
             client,
-            config.simulator.url,
+            config.simulator.url.clone(),
         );
 
         let (mut chain_event_updater, slot_update_sender) =
@@ -162,6 +149,8 @@ impl ApiService {
             .expect("failed to initialise gRPC gossiper"),
         );
 
+        let validator_preferences = Arc::new(config.validator_preferences.clone());
+
         let (builder_gossip_sender, builder_gossip_receiver) = tokio::sync::mpsc::channel(10_000);
         let (proposer_gossip_sender, proposer_gossip_receiver) = tokio::sync::mpsc::channel(10_000);
 
@@ -172,14 +161,13 @@ impl ApiService {
             simulator,
             gossiper.clone(),
             relay_signing_context,
+            config.clone(),
             slot_update_sender.clone(),
             builder_gossip_receiver,
+            validator_preferences.clone(),
         );
-        let builder_api = Arc::new(builder_api);
 
         gossiper.start_server(builder_gossip_sender, proposer_gossip_sender).await;
-
-        let validator_preferences = Arc::new(config.validator_preferences.clone());
 
         let proposer_api = Arc::new(ProposerApiProd::new(
             auctioneer.clone(),
@@ -188,7 +176,7 @@ impl ApiService {
             broadcasters,
             multi_beacon_client.clone(),
             chain_info.clone(),
-            slot_update_sender.clone(),
+            slot_update_sender,
             validator_preferences.clone(),
             config.target_get_payload_propagation_duration_ms,
             proposer_gossip_receiver,
@@ -200,7 +188,7 @@ impl ApiService {
             auctioneer.clone(),
             db.clone(),
             chain_info.clone(),
-            constraints_handle
+            constraints_handle,
         ));
 
         let bids_cache: Arc<BidsCache> = Arc::new(
@@ -219,7 +207,7 @@ impl ApiService {
 
         let router = build_router(
             &mut config.router_config,
-            builder_api,
+            Arc::new(builder_api),
             proposer_api,
             data_api,
             constraints_api,
@@ -261,7 +249,7 @@ async fn init_broadcasters(config: &RelayConfig) -> Vec<Arc<BlockBroadcaster>> {
             }
             BroadcasterConfig::BeaconClient(cfg) => {
                 broadcasters.push(Arc::new(BlockBroadcaster::BeaconClient(
-                    BeaconClient::from_endpoint_str(&cfg.url),
+                    BeaconClient::from_config(cfg.clone()),
                 )));
             }
         }
@@ -278,6 +266,7 @@ mod test {
 
     use super::*;
     use std::convert::TryFrom;
+    use url::Url;
 
     #[test]
     fn test() {
@@ -299,7 +288,8 @@ mod test {
                 encoding: Encoding::Json,
             }),
             BroadcasterConfig::BeaconClient(BeaconClientConfig {
-                url: "http://localhost:4040".to_string(),
+                url: Url::parse("http://localhost:4040").unwrap(),
+                gossip_blobs_enabled: false,
             }),
         ];
         let broadcasters = init_broadcasters(&config).await;

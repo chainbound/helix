@@ -1,12 +1,23 @@
-use std::{collections::HashMap, sync::{atomic::AtomicBool, Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicBool, Arc, Mutex},
+};
 
 use async_trait::async_trait;
 use ethereum_consensus::primitives::{BlsPublicKey, Hash32, U256};
 
 use helix_common::{
-    api::{builder_api::TopBidUpdate, constraints_api::{SignedDelegation, SignedRevocation}}, bid_submission::{
+    api::constraints_api::{SignedDelegation, SignedRevocation},
+    bellatrix::Node,
+    bid_submission::{
         v2::header_submission::SignedHeaderSubmission, BidTrace, SignedBidSubmission,
-    }, eth::SignedBuilderBid, pending_block::PendingBlock, proofs::{InclusionProofs, SignedConstraintsWithProofData}, signing::RelaySigningContext, versioned_payload::PayloadAndBlobs, BuilderInfo, ProposerInfo
+    },
+    eth::SignedBuilderBid,
+    pending_block::PendingBlock,
+    proofs::{InclusionProofs, SignedConstraintsWithProofData},
+    signing::RelaySigningContext,
+    versioned_payload::PayloadAndBlobs,
+    BuilderInfo, ProposerInfo,
 };
 use helix_database::types::BuilderInfoDocument;
 use tokio_stream::Stream;
@@ -122,8 +133,10 @@ impl Auctioneer for MockAuctioneer {
         }
         Ok(self.best_bid.lock().unwrap().clone())
     }
-    async fn get_best_bids(&self) -> Box<dyn Stream<Item = Result<Vec<u8>, AuctioneerError>> + Send + Unpin> {
-        Box::new(tokio_stream::iter(vec![Ok(vec![0; 188]),Ok(vec![0; 188]),Ok(vec![0; 188])].into_iter()))
+    async fn get_best_bids(
+        &self,
+    ) -> Box<dyn Stream<Item = Result<Vec<u8>, AuctioneerError>> + Send + Unpin> {
+        Box::new(tokio_stream::iter(vec![Ok(vec![0; 188]), Ok(vec![0; 188]), Ok(vec![0; 188])]))
     }
 
     async fn save_execution_payload(
@@ -319,5 +332,38 @@ impl Auctioneer for MockAuctioneer {
 
     async fn try_acquire_or_renew_leadership(&self, _leader_id: &str) -> bool {
         true
+    }
+
+    async fn update_primev_proposers(
+        &self,
+        _proposer_whitelist: &Vec<BlsPublicKey>,
+    ) -> Result<(), AuctioneerError> {
+        Ok(())
+    }
+
+    async fn is_primev_proposer(
+        &self,
+        _proposer_pub_key: &BlsPublicKey,
+    ) -> Result<bool, AuctioneerError> {
+        Ok(true)
+    }
+
+    async fn get_header_tx_root(
+        &self,
+        _block_hash: &Hash32,
+    ) -> Result<Option<Node>, AuctioneerError> {
+        Ok(None)
+    }
+
+    async fn kill_switch_enabled(&self) -> Result<bool, AuctioneerError> {
+        Ok(false)
+    }
+
+    async fn enable_kill_switch(&self) -> Result<(), AuctioneerError> {
+        Ok(())
+    }
+
+    async fn disable_kill_switch(&self) -> Result<(), AuctioneerError> {
+        Ok(())
     }
 }

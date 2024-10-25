@@ -39,10 +39,12 @@ use helix_common::{
         builder_api::BuilderGetValidatorsResponseEntry,
         proposer_api::{GetPayloadResponse, ValidatorRegistrationInfo},
     },
+    beacon_api::PublishBlobsRequest,
     chain_info::{ChainInfo, Network},
+    deneb::{BlobSidecars, BuildBlobSidecarError},
     proofs::InclusionProofs,
     signed_proposal::VersionedSignedProposal,
-    try_execution_header_from_payload, validator_preferences,
+    try_execution_header_from_payload,
     versioned_payload::PayloadAndBlobs,
     BidRequest, Filtering, GetHeaderTrace, GetPayloadTrace, RegisterValidatorsTrace,
     ValidatorPreferences,
@@ -53,7 +55,6 @@ use helix_housekeeper::{ChainUpdate, SlotUpdate};
 use helix_utils::signing::{verify_signed_builder_message, verify_signed_consensus_message};
 
 use crate::{
-    builder::api,
     gossiper::{
         traits::GossipClientTrait,
         types::{BroadcastGetPayloadParams, GossipedMessage},
@@ -189,6 +190,7 @@ where
             filtering: proposer_api.validator_preferences.filtering,
             trusted_builders: proposer_api.validator_preferences.trusted_builders.clone(),
             header_delay: proposer_api.validator_preferences.header_delay,
+            gossip_blobs: proposer_api.validator_preferences.gossip_blobs,
         };
 
         let preferences_header = headers.get("x-preferences");
@@ -206,13 +208,11 @@ where
 
             if let Some(filtering) = preferences.filtering {
                 validator_preferences.filtering = filtering;
-            } else {
-                if let Some(censoring) = preferences.censoring {
-                    validator_preferences.filtering = match censoring {
-                        true => Filtering::Regional,
-                        false => Filtering::Global,
-                    };
-                }
+            } else if let Some(censoring) = preferences.censoring {
+                validator_preferences.filtering = match censoring {
+                    true => Filtering::Regional,
+                    false => Filtering::Global,
+                };
             }
 
             if let Some(trusted_builders) = preferences.trusted_builders {
@@ -221,6 +221,10 @@ where
 
             if let Some(header_delay) = preferences.header_delay {
                 validator_preferences.header_delay = header_delay;
+            }
+
+            if let Some(gossip_blobs) = preferences.gossip_blobs {
+                validator_preferences.gossip_blobs = gossip_blobs;
             }
         }
 
@@ -271,7 +275,7 @@ where
             }
 
             if !proposer_api_clone.db.is_registration_update_required(&registration).await? {
-                trace!(
+                debug!(
                     request_id = %request_id,
                     pub_key = ?pub_key,
                     "Registration update not required",
@@ -316,18 +320,25 @@ where
         let successful_registrations = valid_registrations.len();
 
         // Add validator preferences to each registration
-        let valid_registrations = valid_registrations
-            .into_iter()
-            .map(|r| ValidatorRegistrationInfo {
-                registration: r,
-                preferences: validator_preferences.clone(),
-            })
-            .collect::<Vec<ValidatorRegistrationInfo>>();
+        let mut valid_registrations_infos = Vec::new();
+
+        for reg in valid_registrations {
+            let mut preferences = validator_preferences.clone();
+
+            if proposer_api.auctioneer.is_primev_proposer(&reg.message.public_key).await? {
+                preferences.trusted_builders = Some(vec!["PrimevBuilder".to_string()]);
+            }
+
+            valid_registrations_infos
+                .push(ValidatorRegistrationInfo { registration: reg, preferences });
+        }
 
         // Bulk write registrations to db
         tokio::spawn(async move {
-            if let Err(err) =
-                proposer_api.db.save_validator_registrations(valid_registrations, pool_name).await
+            if let Err(err) = proposer_api
+                .db
+                .save_validator_registrations(valid_registrations_infos, pool_name)
+                .await
             {
                 error!(
                     request_id = %request_id,
@@ -359,12 +370,17 @@ where
     /// Implements this API: <https://ethereum.github.io/builder-specs/#/Builder/getHeader>
     pub async fn get_header(
         Extension(proposer_api): Extension<Arc<ProposerApi<A, DB, M, G>>>,
+        headers: HeaderMap,
         Path(GetHeaderParams { slot, parent_hash, public_key }): Path<GetHeaderParams>,
     ) -> Result<impl IntoResponse, ProposerApiError> {
+        if proposer_api.auctioneer.kill_switch_enabled().await? {
+            return Err(ProposerApiError::ServiceUnavailableError);
+        }
+
         let request_id = Uuid::new_v4();
         let mut trace = GetHeaderTrace { receive: get_nanos_timestamp()?, ..Default::default() };
 
-        let (head_slot, _) = *proposer_api.curr_slot_info.read().await;
+        let (head_slot, duty) = proposer_api.curr_slot_info.read().await.clone();
         debug!(
             request_id = %request_id,
             event = "get_header",
@@ -386,11 +402,24 @@ where
             });
         }
 
-        if let Err(err) = proposer_api.validate_bid_request_time(&bid_request) {
-            warn!(request_id = %request_id, err = %err, "invalid bid request time");
-            return Err(err);
+        // Only return a bid if there is a proposer connected this slot.
+        if duty.is_none() {
+            debug!(%request_id, "proposer duty not found");
+            return Err(ProposerApiError::ProposerNotRegistered);
         }
+        let _duty = duty.unwrap();
+
+        let _ms_into_slot = match proposer_api.validate_bid_request_time(&bid_request) {
+            Ok(ms_into_slot) => ms_into_slot,
+            Err(err) => {
+                warn!(request_id = %request_id, err = %err, "invalid bid request time");
+                return Err(err);
+            }
+        };
         trace.validation_complete = get_nanos_timestamp()?;
+
+        let user_agent =
+            headers.get("user-agent").and_then(|v| v.to_str().ok()).map(|v| v.to_string());
 
         // Get best bid from auctioneer
         let get_best_bid_res = proposer_api
@@ -423,6 +452,7 @@ where
                         bid.block_hash().clone(),
                         trace,
                         request_id,
+                        user_agent,
                     )
                     .await;
 
@@ -454,9 +484,11 @@ where
     /// Implements this API: <https://docs.boltprotocol.xyz/api/builder#get_header_with_proofs>
     pub async fn get_header_with_proofs(
         Extension(proposer_api): Extension<Arc<ProposerApi<A, DB, M, G>>>,
+        headers: HeaderMap,
         Path(GetHeaderParams { slot, parent_hash, public_key }): Path<GetHeaderParams>,
     ) -> Result<impl IntoResponse, ProposerApiError> {
         let request_id = Uuid::new_v4();
+
         let mut trace = GetHeaderTrace { receive: get_nanos_timestamp()?, ..Default::default() };
 
         let (head_slot, _) = *proposer_api.curr_slot_info.read().await;
@@ -495,6 +527,9 @@ where
         trace.best_bid_fetched = get_nanos_timestamp()?;
         info!(request_id = %request_id, trace = ?trace, "best bid fetched");
 
+        let user_agent =
+            headers.get("user-agent").and_then(|v| v.to_str().ok()).map(|v| v.to_string());
+
         match get_best_bid_res {
             Ok(Some(mut bid)) => {
                 if bid.value() == U256::ZERO {
@@ -528,6 +563,7 @@ where
                         bid.block_hash().clone(),
                         trace,
                         request_id,
+                        user_agent,
                     )
                     .await;
 
@@ -563,6 +599,7 @@ where
     /// Implements this API: <https://ethereum.github.io/builder-specs/#/Builder/submitBlindedBlock>
     pub async fn get_payload(
         Extension(proposer_api): Extension<Arc<ProposerApi<A, DB, M, G>>>,
+        _headers: HeaderMap,
         req: Request<Body>,
     ) -> Result<impl IntoResponse, ProposerApiError> {
         let mut trace = GetPayloadTrace { receive: get_nanos_timestamp()?, ..Default::default() };
@@ -591,7 +628,7 @@ where
             .gossiper
             .broadcast_get_payload(BroadcastGetPayloadParams {
                 signed_blinded_beacon_block: signed_blinded_block.clone(),
-                request_id: request_id.clone(),
+                request_id,
             })
             .await
         {
@@ -782,6 +819,18 @@ where
             };
         let payload = Arc::new(versioned_payload);
 
+        if self.validator_preferences.gossip_blobs ||
+            !matches!(self.chain_info.network, Network::Mainnet)
+        {
+            info!(?request_id, "gossip blobs: about to gossip blobs");
+            let self_clone = self.clone();
+            let unblinded_payload_clone = unblinded_payload.clone();
+            let req_id = *request_id;
+            tokio::spawn(async move {
+                self_clone.gossip_blobs(unblinded_payload_clone, req_id).await;
+            });
+        }
+
         let is_trusted_proposer = self.is_trusted_proposer(&proposer_public_key).await?;
 
         // Publish and validate payload with multi-beacon-client
@@ -789,7 +838,7 @@ where
         if is_trusted_proposer {
             let self_clone = self.clone();
             let unblinded_payload_clone = unblinded_payload.clone();
-            let request_id_clone = request_id.clone();
+            let request_id_clone = *request_id;
             let mut trace_clone = trace.clone();
             let payload_clone = payload.clone();
 
@@ -956,14 +1005,16 @@ where
     /// Validates that the bid request is not sent too late within the current slot.
     ///
     /// - Only allows requests for the current slot until a certain cutoff time.
-    fn validate_bid_request_time(&self, bid_request: &BidRequest) -> Result<(), ProposerApiError> {
+    ///
+    /// Returns how many ms we are into the slot if ok.
+    fn validate_bid_request_time(&self, bid_request: &BidRequest) -> Result<u64, ProposerApiError> {
         let curr_timestamp_ms = get_millis_timestamp()? as i64;
-        let slot_start_timestamp = self.chain_info.genesis_time_in_secs
-            + (bid_request.slot * self.chain_info.seconds_per_slot);
+        let slot_start_timestamp = self.chain_info.genesis_time_in_secs +
+            (bid_request.slot * self.chain_info.seconds_per_slot);
         let ms_into_slot = curr_timestamp_ms.saturating_sub((slot_start_timestamp * 1000) as i64);
 
         if ms_into_slot > GET_HEADER_REQUEST_CUTOFF_MS {
-            warn!(curr_timestamp_ms = curr_timestamp_ms, slot = bid_request.slot, "get_request",);
+            warn!(curr_timestamp_ms = curr_timestamp_ms, slot = bid_request.slot, "get_request");
 
             return Err(ProposerApiError::GetHeaderRequestTooLate {
                 ms_into_slot: ms_into_slot as u64,
@@ -971,7 +1022,7 @@ where
             });
         }
 
-        Ok(())
+        Ok(ms_into_slot.max(0) as u64)
     }
 
     /// Validates the proposal coordinate of a given `SignedBlindedBeaconBlock`.
@@ -1125,37 +1176,69 @@ where
         }
     }
 
+    /// If there are blobs in the unblinded payload, this function will send them directly to the
+    /// beacon chain to be propagated async to the full block.
+    async fn gossip_blobs(
+        &self,
+        unblinded_payload: Arc<VersionedSignedProposal>,
+        request_id: Uuid,
+    ) {
+        let blob_sidecars = match BlobSidecars::try_from_unblinded_payload(
+            unblinded_payload.clone(),
+        ) {
+            Ok(blob_sidecars) => blob_sidecars,
+            Err(err) => {
+                match err {
+                    BuildBlobSidecarError::NoBlobsInPayload |
+                    BuildBlobSidecarError::PayloadVersionBeforeBlobs => {}
+                    error => {
+                        error!(%request_id, ?error, "gossip blobs: failed to build blob sidecars for async gossiping");
+                    }
+                }
+                return;
+            }
+        };
+
+        info!(%request_id, "gossip blobs: successfully built blob sidecars for request. Gossiping async..");
+
+        // Send blob sidecars to beacon clients.
+        let publish_blob_request = PublishBlobsRequest {
+            blob_sidecars,
+            beacon_root: unblinded_payload.beacon_block().message().parent_root(),
+        };
+        if let Err(error) = self.multi_beacon_client.publish_blobs(publish_blob_request).await {
+            error!(%request_id, ?error, "gossip blobs: failed to gossip blob sidecars");
+        }
+    }
+
     /// This function should be run as a seperate async task.
     /// Will process new gossiped messages from
     async fn process_gossiped_info(&self, mut recveiver: Receiver<GossipedMessage>) {
         while let Some(msg) = recveiver.recv().await {
-            match msg {
-                GossipedMessage::GetPayload(payload) => {
-                    let api_clone = self.clone();
-                    tokio::spawn(async move {
-                        let mut trace = GetPayloadTrace {
-                            receive: get_nanos_timestamp().unwrap_or_default(),
-                            ..Default::default()
-                        };
-                        info!(request_id = %payload.request_id, "processing gossiped payload");
-                        match api_clone
-                            ._get_payload(
-                                payload.signed_blinded_beacon_block,
-                                &mut trace,
-                                &payload.request_id,
-                            )
-                            .await
-                        {
-                            Ok(_get_payload_response) => {
-                                info!(request_id = %payload.request_id, "gossiped payload processed");
-                            }
-                            Err(err) => {
-                                error!(request_id = %payload.request_id, error = %err, "error processing gossiped payload");
-                            }
+            if let GossipedMessage::GetPayload(payload) = msg {
+                let api_clone = self.clone();
+                tokio::spawn(async move {
+                    let mut trace = GetPayloadTrace {
+                        receive: get_nanos_timestamp().unwrap_or_default(),
+                        ..Default::default()
+                    };
+                    info!(request_id = %payload.request_id, "processing gossiped payload");
+                    match api_clone
+                        ._get_payload(
+                            payload.signed_blinded_beacon_block,
+                            &mut trace,
+                            &payload.request_id,
+                        )
+                        .await
+                    {
+                        Ok(_get_payload_response) => {
+                            info!(request_id = %payload.request_id, "gossiped payload processed");
                         }
-                    });
-                }
-                _ => {}
+                        Err(err) => {
+                            error!(request_id = %payload.request_id, error = %err, "error processing gossiped payload");
+                        }
+                    }
+                });
             }
         }
     }
@@ -1291,12 +1374,21 @@ where
         best_block_hash: ByteVector<32>,
         trace: GetHeaderTrace,
         request_id: Uuid,
+        user_agent: Option<String>,
     ) {
         let db = self.db.clone();
 
         tokio::spawn(async move {
-            if let Err(err) =
-                db.save_get_header_call(slot, parent_hash, public_key, best_block_hash, trace).await
+            if let Err(err) = db
+                .save_get_header_call(
+                    slot,
+                    parent_hash,
+                    public_key,
+                    best_block_hash,
+                    trace,
+                    user_agent,
+                )
+                .await
             {
                 error!(request_id = %request_id, error = %err, "error saving get header call to database");
             }
@@ -1353,7 +1445,7 @@ where
     /// Updates the next proposer duty for the new slot.
     async fn handle_new_slot(&self, slot_update: SlotUpdate) {
         let epoch = slot_update.slot / SLOTS_PER_EPOCH;
-        debug!(
+        info!(
             epoch = epoch,
             slot = slot_update.slot,
             slot_start_next_epoch = (epoch + 1) * SLOTS_PER_EPOCH,
