@@ -271,7 +271,7 @@ where
             }
 
             if !proposer_api_clone.db.is_registration_update_required(&registration).await? {
-                debug!(
+                trace!(
                     request_id = %request_id,
                     pub_key = ?pub_key,
                     "Registration update not required",
@@ -958,8 +958,8 @@ where
     /// - Only allows requests for the current slot until a certain cutoff time.
     fn validate_bid_request_time(&self, bid_request: &BidRequest) -> Result<(), ProposerApiError> {
         let curr_timestamp_ms = get_millis_timestamp()? as i64;
-        let slot_start_timestamp = self.chain_info.genesis_time_in_secs +
-            (bid_request.slot * self.chain_info.seconds_per_slot);
+        let slot_start_timestamp = self.chain_info.genesis_time_in_secs
+            + (bid_request.slot * self.chain_info.seconds_per_slot);
         let ms_into_slot = curr_timestamp_ms.saturating_sub((slot_start_timestamp * 1000) as i64);
 
         if ms_into_slot > GET_HEADER_REQUEST_CUTOFF_MS {
