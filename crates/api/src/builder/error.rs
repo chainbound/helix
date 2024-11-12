@@ -166,6 +166,9 @@ pub enum BuilderApiError {
 
     #[error("incorrect slot for constraints request {0}")]
     IncorrectSlot(u64),
+
+    #[error("relay side inclusion proof verification failed")]
+    RelaySideInclusionProofVerificationFailed,
 }
 
 impl IntoResponse for BuilderApiError {
@@ -335,6 +338,9 @@ impl IntoResponse for BuilderApiError {
             }
             BuilderApiError::IncorrectSlot(slot) => {
                 (StatusCode::BAD_REQUEST, format!("incorrect slot for constraints request {slot}")).into_response()
+            }
+            BuilderApiError::RelaySideInclusionProofVerificationFailed => {
+                (StatusCode::BAD_REQUEST, "relay side inclusion proof verification failed").into_response()
             }
         }
     }

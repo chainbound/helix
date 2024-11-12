@@ -2197,9 +2197,42 @@ where
                     error!(?error, "failed to convert root to hash32");
                     BuilderApiError::InternalError
                 })?;
-            let proofs = payload.proofs().ok_or(BuilderApiError::InclusionProofsNotFound)?;
-            let constraints_proofs: Vec<_> = constraints.iter().map(|c| &c.proof_data).collect();
 
+            let proofs = match payload.proofs() {
+                Some(p) => p,
+                None => {
+                    if self
+                        .relay_config
+                        .constraints_api_config
+                        .allow_relay_side_constraint_validation
+                    {
+                        info!(%request_id, "no inclusion proofs found, but relay side constraint validation is allowed");
+                        // Validate by comparing transactions directly between payload and constraints.
+                        // TODO: the relay should probably compute the inclusion proof here.
+                        let flattened_contraints_txs: Vec<&_> = constraints
+                            .iter()
+                            .flat_map(|c| c.signed_constraints.message.transactions.iter())
+                            .collect();
+
+                        if payload.transactions().len() != flattened_contraints_txs.len() {
+                            return Err(BuilderApiError::RelaySideInclusionProofVerificationFailed)
+                        }
+                        if payload
+                            .transactions()
+                            .iter()
+                            .zip(flattened_contraints_txs.iter())
+                            .any(|(a, b)| &a != b)
+                        {
+                            return Err(BuilderApiError::RelaySideInclusionProofVerificationFailed)
+                        }
+
+                        return Ok(())
+                    }
+                    return Err(BuilderApiError::InclusionProofsNotFound)
+                }
+            };
+
+            let constraints_proofs: Vec<_> = constraints.iter().map(|c| &c.proof_data).collect();
             verify_multiproofs(constraints_proofs.as_slice(), proofs, transactions_root).map_err(
                 |e| {
                     error!(error = %e, "failed to verify inclusion proofs");
